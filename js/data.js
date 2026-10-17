@@ -11,7 +11,7 @@ window.KANAM_DEFAULTS = {
     email: 'kanamenterprisesltd@gmail.com',
     location: 'Kaoll Apartments, Mowlem, Kisumu–Nairobi Road, Kisumu',
     postal: 'P.O. Box 2645–40100, Kisumu',
-    hours: '[Opening hours, e.g. Mon–Sat, 8am–6pm]',
+    hours: 'Mon–Sat, 9am–4pm',
     year_registered: '[Year registered]',
     reg_no: '[Company registration number]',
     kra_pin: '[KRA PIN]',
