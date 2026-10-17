@@ -1265,7 +1265,7 @@
           <td><select data-f="category">${catOpts(r.category)}</select></td>
           <td><input data-f="item" value="${esc(r.item)}" placeholder="What it was for"></td>
           <td><input data-f="qty" inputmode="decimal" class="r" value="${r.qty == null ? '' : esc(r.qty)}"></td>
-          <td><input data-f="unit" value="${esc(r.unit)}" placeholder="litres, trips…"></td>
+          <td><input data-f="unit" value="${esc(r.unit)}"></td>
           <td><input data-f="price" inputmode="decimal" class="r" value="${r.price == null ? '' : esc(r.price)}"></td>
           <td class="r calc" data-amt>${c.rows[i] ? kes(c.rows[i]) : ''}</td>
           <td><input data-f="notes" value="${esc(r.notes)}"></td>
@@ -1379,7 +1379,7 @@
         <td><select data-t="category" aria-label="Category">${catOpts(t.category)}</select></td>
         <td><input data-t="item" value="${esc(t.item)}" placeholder="What it is for" aria-label="Item"></td>
         <td><input data-t="qty" class="r" inputmode="decimal" value="${esc(t.qty)}" aria-label="Quantity"></td>
-        <td><input data-t="unit" value="${esc(t.unit)}" placeholder="litres…" aria-label="Unit"></td>
+        <td><input data-t="unit" value="${esc(t.unit)}" aria-label="Unit"></td>
         <td><select data-t="fuel" aria-label="Price"><option value="">Fixed price</option><option value="diesel"${t.fuel === 'diesel' ? ' selected' : ''}>Diesel price</option><option value="petrol"${t.fuel === 'petrol' ? ' selected' : ''}>Petrol price</option></select></td>
         <td><input data-t="price" class="r" inputmode="decimal" value="${t.fuel ? '' : esc(t.price)}"${t.fuel ? ' disabled' : ''} aria-label="Price"></td>
         <td><button type="button" class="btn-text danger" data-rm-t title="Remove">✕</button></td></tr>`;
