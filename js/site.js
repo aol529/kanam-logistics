@@ -20,6 +20,11 @@
   let S = Object.assign({}, D.settings);
   let products = D.products.slice();
   let projects = D.projects.slice();
+  let faqs = (D.faqs || []).slice(), testimonials = [], team = [], posts = [];
+  let C = {};                       // edited page text from the CMS, by data-c key
+  let loaded = !db;                 // false until Supabase has answered
+  const md = s => window.KanamMD ? KanamMD.render(s) : esc(s);
+  const fmtDate = iso => iso ? new Date(iso).toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
 
   const imgUrl = path => path && db ? db.storage.from('site').getPublicUrl(path).data.publicUrl : '';
   const productName = p => p.name + (p.size_kg ? ` – ${Number(p.size_kg)} kg` : '');
@@ -32,7 +37,7 @@
   /* ------------------------------ Layout ------------------------------ */
   const PAGES = [
     ['index.html', 'Home'], ['about.html', 'About'], ['services.html', 'Services'],
-    ['rice.html', 'Pishori Rice'], ['projects.html', 'Projects'], ['contact.html', 'Contact']
+    ['rice.html', 'Pishori Rice'], ['projects.html', 'Projects'], ['news.html', 'News'], ['contact.html', 'Contact']
   ];
   const here = document.body.dataset.page || 'index.html';
 
@@ -99,15 +104,40 @@
   /* ------------------------------ Content ------------------------------ */
   async function load(){
     if (!db) return;
-    const [s, p, j] = await Promise.all([
+    const needPosts = document.querySelector('[data-news]');
+    const [s, p, j, c, f, t, m, n] = await Promise.all([
       db.from('settings').select('key,value'),
       db.from('products').select('*').eq('published', true).order('sort').order('size_kg'),
-      db.from('projects').select('*').eq('published', true).order('sort').order('created_at', { ascending: false })
+      db.from('projects').select('*').eq('published', true).order('sort').order('created_at', { ascending: false }),
+      db.from('content').select('key,value'),
+      db.from('faqs').select('*').eq('published', true).order('sort'),
+      db.from('testimonials').select('*').eq('published', true).order('sort'),
+      db.from('team').select('*').eq('published', true).order('sort'),
+      needPosts ? db.from('posts').select('id,slug,title,excerpt,body,cover_path,published_at,author_name').eq('status', 'published')
+        .lte('published_at', new Date().toISOString()).order('published_at', { ascending: false }).limit(100) : { data: [] }
     ]);
     if (!s.error) (s.data || []).forEach(r => { if (r.value) S[r.key] = r.value; });
     if (!p.error && p.data && p.data.length) products = p.data;
     if (!j.error && j.data && j.data.length) projects = j.data;
-    [s, p, j].forEach(r => { if (r.error) console.warn('Kanam: using default content –', r.error.message); });
+    if (!c.error) (c.data || []).forEach(r => { C[r.key] = r.value; });
+    if (!f.error && f.data && f.data.length) faqs = f.data;
+    if (!t.error) testimonials = t.data || [];
+    if (!m.error) team = m.data || [];
+    if (!n.error) posts = n.data || [];
+    // Tables added by sql/02-cms.sql may not exist yet: the defaults stand in.
+    [s, p, j, c, f, t, m, n].forEach(r => { if (r.error) console.warn('Kanam: using default content –', r.error.message); });
+  }
+
+  // Page text edited in the portal replaces the text written in the HTML.
+  function applyContent(){
+    $$('[data-c]').forEach(el => {
+      if (!('orig' in el.dataset)) el.dataset.orig = el.innerHTML;
+      const v = C[el.dataset.c];
+      el.innerHTML = v != null && v !== '' ? esc(v).replace(/\n/g, '<br>') : el.dataset.orig;
+    });
+    const t = C[here.replace('.html', '') + '.meta.title'], d = C[here.replace('.html', '') + '.meta.description'];
+    if (t) document.title = t;
+    if (d){ const m = document.querySelector('meta[name=description]'); if (m) m.content = d; }
   }
 
   function fill(){
@@ -176,6 +206,91 @@
     }
   }
 
+  /* ------------------------------ FAQs, testimonials, team, news ------------------------------ */
+  // Sections marked data-hide-empty disappear when their list is empty.
+  function showSection(box, has){ const s = box.closest('[data-hide-empty]'); if (s) s.hidden = !has; }
+
+  function renderFaqs(){
+    $$('[data-faqs]').forEach(box => {
+      const topic = box.dataset.faqs;
+      const list = faqs.filter(f => !topic || f.topic === topic);
+      box.innerHTML = list.map(f => `
+        <details class="faq">
+          <summary>${show(f.question)}</summary>
+          <div class="faq-a">${md(f.answer).replace(/\[([^\]<]+)\]/g, '<span class="ph">[$1]</span>')}</div>
+        </details>`).join('');
+      showSection(box, list.length);
+    });
+  }
+
+  function renderTestimonials(){
+    $$('[data-testimonials]').forEach(box => {
+      box.innerHTML = testimonials.map(t => {
+        const img = imgUrl(t.photo_path);
+        return `
+        <figure class="testimonial">
+          ${t.rating ? `<div class="stars" aria-label="${t.rating} out of 5">${'★'.repeat(t.rating)}${'☆'.repeat(5 - t.rating)}</div>` : ''}
+          <blockquote>${esc(t.quote)}</blockquote>
+          <figcaption>${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : `<span class="avatar">${esc((t.name || '?').trim()[0])}</span>`}
+            <span><b>${esc(t.name)}</b>${t.org ? `<small>${esc(t.org)}</small>` : ''}</span></figcaption>
+        </figure>`; }).join('');
+      showSection(box, testimonials.length);
+    });
+  }
+
+  function renderTeam(){
+    $$('[data-team]').forEach(box => {
+      box.innerHTML = team.map(m => {
+        const img = imgUrl(m.photo_path);
+        return `
+        <article class="member">
+          <div class="member-img">${img ? `<img src="${esc(img)}" alt="${esc(m.name)}" loading="lazy">` : `<span>${esc((m.name || '?').split(/\s+/).map(w => w[0]).join('').slice(0, 2))}</span>`}</div>
+          <h3>${esc(m.name)}</h3>
+          ${m.role ? `<p class="role">${esc(m.role)}</p>` : ''}
+          ${m.bio ? `<p>${esc(m.bio)}</p>` : ''}
+        </article>`; }).join('');
+      showSection(box, team.length);
+    });
+  }
+
+  function postCard(p){
+    const img = imgUrl(p.cover_path);
+    return `
+      <article class="post-card">
+        <a href="news.html?p=${encodeURIComponent(p.slug)}" class="post-img">${img ? `<img src="${esc(img)}" alt="" loading="lazy">` : `<span class="img-ph"><span>Kanam Logistics news</span></span>`}</a>
+        <div class="post-body">
+          <p class="meta">${esc(fmtDate(p.published_at))}</p>
+          <h3><a href="news.html?p=${encodeURIComponent(p.slug)}">${esc(p.title)}</a></h3>
+          ${p.excerpt ? `<p>${esc(p.excerpt)}</p>` : ''}
+        </div>
+      </article>`;
+  }
+
+  function renderNews(){
+    const slug = new URLSearchParams(location.search).get('p');
+    const article = $('#article');
+    $$('[data-news]').forEach(box => {
+      const limit = Number(box.dataset.news) || posts.length;
+      box.innerHTML = posts.slice(0, limit).map(postCard).join('') || (box.dataset.news ? '' : '<p class="muted">No news yet. Check back soon.</p>');
+      showSection(box, posts.length || !box.dataset.news);
+    });
+    if (!article) return;
+    const listing = $('#news-listing'), wrap = article.closest('section') || article;
+    if (!slug){ wrap.hidden = true; if (listing) listing.hidden = false; return; }
+    const p = posts.find(x => x.slug === slug);
+    if (listing) listing.hidden = true;
+    wrap.hidden = false;
+    if (!p){ article.innerHTML = db && !posts.length && !loaded ? '<p class="muted">Loading…</p>' : '<h1>Post not found</h1><p><a href="news.html">← All news</a></p>'; return; }
+    const img = imgUrl(p.cover_path);
+    document.title = p.title + ' – Kanam Logistics';
+    article.innerHTML = `
+      <p><a href="news.html">← All news</a></p>
+      <p class="meta">${esc(fmtDate(p.published_at))}${p.author_name ? ' · ' + esc(p.author_name) : ''}</p>
+      <h1>${esc(p.title)}</h1>
+      ${img ? `<img class="post-cover" src="${esc(img)}" alt="">` : ''}
+      <div class="prose">${md(p.body)}</div>`;
+  }
+
   /* ------------------------------ Quote / order form ------------------------------ */
   function toggleKind(){
     const f = $('#quote-form');
@@ -239,8 +354,9 @@
   }
 
   /* ------------------------------ Start ------------------------------ */
+  function renderAll(){ applyContent(); fill(); renderProducts(); renderProjects(); renderFaqs(); renderTestimonials(); renderTeam(); renderNews(); form(); }
   layout();
-  fill(); renderProducts(); renderProjects(); form();
-  load().then(() => { fill(); renderProducts(); renderProjects(); form(); })
+  renderAll();
+  load().then(() => { loaded = true; renderAll(); })
         .catch(err => console.warn('Kanam: using default content –', err.message));
 })();

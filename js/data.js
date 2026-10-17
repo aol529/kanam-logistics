@@ -17,6 +17,7 @@ window.KANAM_DEFAULTS = {
     kra_pin: '[KRA PIN]',
     directors: '[Director names]',
     delivery_areas: '[Delivery areas, e.g. Kisumu, Siaya, Homa Bay and Migori]',
+    payment: '[Payment options, e.g. M-Pesa or cash on delivery]',
     about: 'Kanam Logistics Limited is a Kenyan company that gets goods and work to where they are needed. We began by maintaining rural roads under contract with the Kenya Rural Roads Authority (KERRA) and supplying foodstuff to Jaramogi Oginga Odinga Teaching & Referral Hospital (JOOTRH). Today we also trade Pishori rice, sourced at the farm gate and delivered sorted and packed.',
     mission: 'To be the supplier institutions and families can count on: the right goods, at a fair price, delivered on time.',
     roads_done: '[No. of roads / contracts]',
@@ -28,6 +29,17 @@ window.KANAM_DEFAULTS = {
     { id: 'rice-10', name: 'Pishori rice', size_kg: 10, price: 1500, in_stock: true, description: 'Aromatic Pishori rice, sorted and packed.' },
     { id: 'rice-25', name: 'Pishori rice', size_kg: 25, price: 3700, in_stock: true, description: 'Aromatic Pishori rice, sorted and packed. Best value for families and shops.' }
   ],
+
+  // Shown on Contact. Testimonials and team stay hidden until real ones are added in the portal.
+  faqs: [
+    { id: 'f1', topic: 'Rice', question: 'How do I order rice?', answer: 'Use the order form on the Pishori Rice page, call us, or send a WhatsApp message with the bag size and how many bags you need. We call back to confirm the price, place and time.' },
+    { id: 'f2', topic: 'Rice', question: 'Where do you deliver?', answer: 'We deliver across [Delivery areas]. Ask us about other places.' },
+    { id: 'f3', topic: 'Rice', question: 'How do I pay?', answer: '[Payment options, e.g. M-Pesa on delivery or bank transfer for institutions]' },
+    { id: 'f4', topic: 'Supplies', question: 'Do you supply institutions on LPO / LSO?', answer: 'Yes. Send us your requirements and we will quote, then deliver on the schedule you set, with delivery notes and invoices.' },
+    { id: 'f5', topic: 'General', question: 'Can you share company documents for a tender?', answer: 'Yes. Ask us for the certificate of incorporation, KRA PIN and tax compliance certificate and our company profile.' }
+  ],
+  testimonials: [],
+  team: [],
 
   projects: [
     { id: 'p1', title: '[Road name] maintenance', category: 'Road works', client: 'KERRA', location: '[County]', year: '[Year]',

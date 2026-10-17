@@ -5,7 +5,7 @@ const path = require('path');
 const ROOT = __dirname;
 const INDEX_FILE = 'index.html';
 const PORT = process.env.PORT || 3002;
-const PUBLIC_FILES = [INDEX_FILE, 'about.html', 'services.html', 'rice.html', 'projects.html', 'contact.html', 'icon.svg'];
+const PUBLIC_FILES = [INDEX_FILE, 'about.html', 'services.html', 'rice.html', 'projects.html', 'news.html', 'contact.html', 'icon.svg'];
 const PUBLIC_DIRS = ['css', 'js', 'img', 'portal'];
 
 const MIME_TYPES = {

@@ -18,8 +18,8 @@
 <section id="setup" class="gate" hidden>
   <div class="gate-card">
     <img src="../img/logo.svg" alt="" width="48" height="48">
-    <h1>Almost there</h1>
-    <p class="muted">Connect Supabase first: run <code>sql/01-schema.sql</code> in a new Supabase project, then put its URL and publishable key in <code>js/config.js</code>. The README has the steps.</p>
+    <h1 id="setup-title">Almost there</h1>
+    <p class="muted" id="setup-text">Connect Supabase first: run <code>sql/01-schema.sql</code> in a new Supabase project, then put its URL and publishable key in <code>js/config.js</code>. The README has the steps.</p>
     <a href="../index.html">← Back to the website</a>
   </div>
 </section>
@@ -39,65 +39,18 @@
 </section>
 
 <!-- Signed in -->
-<div id="app" hidden>
-  <header class="p-header">
-    <a class="brand" href="../index.html" title="Open the website"><img src="../img/logo.svg" alt="" width="34" height="34"><span><b>Kanam</b> Portal</span></a>
-    <nav class="p-tabs" id="tabs" aria-label="Portal sections">
-      <button type="button" data-tab="inquiries">Inquiries <span class="count" id="new-count" hidden></span></button>
-      <button type="button" data-tab="products">Products</button>
-      <button type="button" data-tab="projects">Projects</button>
-      <button type="button" data-tab="settings">Settings</button>
-    </nav>
-    <span class="p-user"><span id="user-email"></span> <button class="link" type="button" id="sign-out">Sign out</button></span>
-  </header>
+<div id="app" class="p-app" hidden>
+  <aside class="p-side">
+    <a class="brand" href="../index.html" target="_blank" rel="noopener" title="Open the website"><img src="../img/logo.svg" alt="" width="34" height="34"><span><b>Kanam</b> CMS</span></a>
+    <nav class="p-nav" id="tabs" aria-label="Portal sections"></nav>
+    <div class="p-me">
+      <span id="me-name"></span>
+      <span class="pill" id="me-role"></span>
+      <button class="link" type="button" id="sign-out">Sign out</button>
+    </div>
+  </aside>
 
-  <main class="p-main">
-    <!-- Inquiries -->
-    <section id="tab-inquiries" class="p-tab">
-      <div class="p-head">
-        <h1>Inquiries</h1>
-        <div class="p-tools">
-          <select id="inq-status" aria-label="Show">
-            <option value="open">New & contacted</option>
-            <option value="new">New</option>
-            <option value="contacted">Contacted</option>
-            <option value="done">Done</option>
-            <option value="all">All</option>
-          </select>
-          <input type="search" id="inq-search" placeholder="Search name, phone, message" aria-label="Search inquiries">
-        </div>
-      </div>
-      <div id="inq-list"></div>
-    </section>
-
-    <!-- Products -->
-    <section id="tab-products" class="p-tab" hidden>
-      <div class="p-head">
-        <h1>Products</h1>
-        <button class="btn btn-navy btn-sm" type="button" id="add-product">+ Product</button>
-      </div>
-      <div id="product-list"></div>
-    </section>
-
-    <!-- Projects -->
-    <section id="tab-projects" class="p-tab" hidden>
-      <div class="p-head">
-        <h1>Projects</h1>
-        <button class="btn btn-navy btn-sm" type="button" id="add-project">+ Project</button>
-      </div>
-      <div id="project-list"></div>
-    </section>
-
-    <!-- Settings -->
-    <section id="tab-settings" class="p-tab" hidden>
-      <div class="p-head">
-        <h1>Company details</h1>
-        <button class="btn btn-navy btn-sm" type="submit" form="settings-form">Save changes</button>
-      </div>
-      <p class="muted">What the website shows. Anything left in [square brackets] appears highlighted on the site as a placeholder.</p>
-      <form id="settings-form" class="settings"></form>
-    </section>
-  </main>
+  <main class="p-main" id="main"></main>
 </div>
 
 <!-- Inquiry detail -->
@@ -119,64 +72,45 @@
   </form>
 </dialog>
 
-<!-- Product -->
-<dialog id="product-dialog" class="p-dialog">
-  <form id="product-form" method="dialog">
-    <h2 id="product-title">Product</h2>
-    <label>Name <input name="name" required maxlength="120" placeholder="e.g. Pishori rice"></label>
-    <div class="row2">
-      <label>Bag size (kg) <input name="size_kg" type="number" min="0" step="0.5"></label>
-      <label>Price (KES) <input name="price" type="number" min="0" step="1" placeholder="Blank = Call for price"></label>
-    </div>
-    <label>Description <textarea name="description" rows="2" maxlength="500"></textarea></label>
-    <div class="image-field">
-      <div class="image-preview" id="product-preview"></div>
-      <label class="btn btn-sm btn-quiet file-btn">Choose photo <input type="file" name="image" accept="image/*" hidden></label>
-      <button type="button" class="btn-text" id="product-clear-image">Remove photo</button>
-    </div>
-    <div class="checks">
-      <label class="check"><input type="checkbox" name="in_stock"> In stock</label>
-      <label class="check"><input type="checkbox" name="published"> Show on the website</label>
-      <label class="inline">Order <input name="sort" type="number" step="1" class="short"></label>
-    </div>
-    <p class="form-status err" id="product-error" role="alert"></p>
+<!-- Add / edit any item (products, projects, news, testimonials, FAQs, team) -->
+<dialog id="edit-dialog" class="p-dialog wide">
+  <form id="edit-form" method="dialog">
+    <h2 id="edit-title"></h2>
+    <div id="edit-fields" class="fields"></div>
+    <p class="form-status err" id="edit-error" role="alert"></p>
     <div class="d-actions">
-      <button type="button" class="btn-text danger" id="product-delete">Delete</button>
+      <button type="button" class="btn-text danger" id="edit-delete">Delete</button>
       <span class="spacer"></span>
       <button type="button" class="btn btn-sm btn-quiet" data-close>Cancel</button>
-      <button type="submit" class="btn btn-sm btn-navy">Save</button>
+      <button type="submit" class="btn btn-sm btn-navy" id="edit-save">Save</button>
     </div>
   </form>
 </dialog>
 
-<!-- Project -->
-<dialog id="project-dialog" class="p-dialog">
-  <form id="project-form" method="dialog">
-    <h2 id="project-title">Project</h2>
-    <label>Title <input name="title" required maxlength="160" placeholder="e.g. Rakwaro–Kanam road maintenance"></label>
-    <div class="row2">
-      <label>Category
-        <select name="category"><option>Road works</option><option>Supplies & delivery</option><option>Rice trading</option></select>
-      </label>
-      <label>Client <input name="client" maxlength="120" placeholder="e.g. KERRA"></label>
+<!-- Media library picker -->
+<dialog id="picker" class="p-dialog wide">
+  <div class="picker">
+    <div class="p-head">
+      <h2>Choose a photo</h2>
+      <label class="btn btn-sm btn-navy file-btn">Upload new <input type="file" accept="image/*" id="picker-upload" hidden></label>
     </div>
-    <div class="row2">
-      <label>Location <input name="location" maxlength="120"></label>
-      <label>Year <input name="year" maxlength="20"></label>
-    </div>
-    <label>Description <textarea name="description" rows="3" maxlength="2000"></textarea></label>
-    <div class="image-field">
-      <div class="image-preview" id="project-preview"></div>
-      <label class="btn btn-sm btn-quiet file-btn">Choose photo <input type="file" name="image" accept="image/*" hidden></label>
-      <button type="button" class="btn-text" id="project-clear-image">Remove photo</button>
-    </div>
-    <div class="checks">
-      <label class="check"><input type="checkbox" name="published"> Show on the website</label>
-      <label class="inline">Order <input name="sort" type="number" step="1" class="short"></label>
-    </div>
-    <p class="form-status err" id="project-error" role="alert"></p>
+    <input type="search" id="picker-search" placeholder="Search photos" aria-label="Search photos">
+    <div class="media-grid" id="picker-grid"></div>
+    <div class="d-actions"><span class="spacer"></span><button type="button" class="btn btn-sm btn-quiet" data-close>Cancel</button></div>
+  </div>
+</dialog>
+
+<!-- One photo in the library -->
+<dialog id="media-dialog" class="p-dialog">
+  <form id="media-form" method="dialog">
+    <img id="media-big" class="media-big" alt="">
+    <p class="muted small" id="media-info"></p>
+    <label>Description for screen readers and Google (alt text) <input name="alt" maxlength="200"></label>
+    <label>Caption <input name="caption" maxlength="300"></label>
+    <div class="copy-row"><input id="media-url" readonly aria-label="Photo link"><button type="button" class="btn btn-sm btn-quiet" id="media-copy">Copy link</button></div>
+    <p class="form-status err" id="media-error" role="alert"></p>
     <div class="d-actions">
-      <button type="button" class="btn-text danger" id="project-delete">Delete</button>
+      <button type="button" class="btn-text danger" id="media-delete">Delete</button>
       <span class="spacer"></span>
       <button type="button" class="btn btn-sm btn-quiet" data-close>Cancel</button>
       <button type="submit" class="btn btn-sm btn-navy">Save</button>
@@ -189,6 +123,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3"></script>
 <script src="../js/config.js"></script>
 <script src="../js/data.js"></script>
+<script src="../js/md.js"></script>
 <script src="../js/portal.js"></script>
 </body>
 </html>
