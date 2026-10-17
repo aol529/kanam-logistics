@@ -1,0 +1,9 @@
+{
+  "name": "kanam-logistics",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Kanam Logistics Limited — company website and staff portal (static HTML/CSS/JS, backed by Supabase)",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

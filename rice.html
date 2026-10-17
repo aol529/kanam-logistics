@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pishori rice – Kanam Logistics Limited</title>
+<meta name="description" content="Buy aromatic Pishori rice in 5, 10 and 25 kg bags. Sorted, packed and delivered by Kanam Logistics.">
+<meta property="og:title" content="Pishori rice – Kanam Logistics Limited">
+<meta property="og:description" content="Buy aromatic Pishori rice in 5, 10 and 25 kg bags. Sorted, packed and delivered by Kanam Logistics.">
+<meta property="og:type" content="website">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Manrope:wght@700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="css/site.css">
+</head>
+<body data-page="rice.html">
+<main id="main">
+<section class="page-hero">
+  <div class="wrap">
+    <span class="eyebrow">Pishori rice</span>
+    <h1>Aromatic Pishori rice, delivered</h1>
+    <p class="muted" style="max-width:620px">Sourced from growers, sorted and packed by us. Pick a bag size and order by the form, phone or WhatsApp.</p>
+  </div>
+</section>
+
+<section style="padding-top:0">
+  <div class="wrap">
+    <div class="products" data-products></div>
+  </div>
+</section>
+
+<section class="alt">
+  <div class="wrap">
+    <div class="section-head"><h2>How ordering works</h2></div>
+    <ol class="steps">
+      <li><h3>Order</h3><p>Use the form below, call <a data-tel data-s="phone"></a>, or WhatsApp us.</p></li>
+      <li><h3>Confirm</h3><p>We call you back to confirm the price, delivery place and time.</p></li>
+      <li><h3>Receive & pay</h3><p>We deliver. Pay by M-Pesa or cash on delivery.</p></li>
+    </ol>
+    <p class="muted" style="margin-top:20px">We deliver across <span data-s="delivery_areas"></span>. Buying for a shop, school or hotel? Ask for wholesale prices.</p>
+  </div>
+</section>
+
+<section>
+  <div class="wrap grid grid-2">
+    
+<form class="quote" id="quote-form">
+  <span id="order" style="position:relative;top:-90px"></span>
+  <h2>Order rice</h2>
+  
+  <label>What do you need?
+    <select name="kind"><option selected>Rice order</option><option>Supplies & delivery</option><option>Road works</option><option>Other</option></select>
+  </label>
+  <div class="row2 rice-only">
+    <label>Bag size <select name="product"></select></label>
+    <label>How many bags? <input name="quantity" inputmode="numeric" maxlength="60" placeholder="e.g. 4"></label>
+  </div>
+  <div class="row2">
+    <label>Your name <input name="name" required maxlength="120" autocomplete="name"></label>
+    <label>Phone <input name="phone" required type="tel" minlength="7" maxlength="30" autocomplete="tel" placeholder="07XX XXX XXX"></label>
+  </div>
+  <label>Email <span class="opt">(optional)</span> <input name="email" type="email" maxlength="200" autocomplete="email"></label>
+  <label>Details <span class="opt">(delivery place, dates, anything else)</span> <textarea name="message" maxlength="3000"></textarea></label>
+  <label class="hp" aria-hidden="true">Leave this empty <input name="website" tabindex="-1" autocomplete="off"></label>
+  <button class="btn btn-navy" type="submit">Send</button>
+  <p id="quote-status" class="form-status" role="status" aria-live="polite"></p>
+</form>
+    <div>
+      <h2>Questions?</h2>
+      <ul class="contact-list">
+        <li><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg></span><div><b>Call</b><a data-tel data-s="phone"></a></div></li>
+        <li><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H8l-4 4z"/></svg></span><div><b>WhatsApp</b><span data-s="whatsapp"></span></div></li>
+        <li><span class="icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><div><b>Hours</b><span data-s="hours"></span></div></li>
+      </ul>
+      <div class="img-ph" style="margin-top:24px"><span>Photo: rice being sorted and packed</span></div>
+    </div>
+  </div>
+</section>
+</main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3"></script>
+<script src="js/config.js"></script>
+<script src="js/data.js"></script>
+<script src="js/site.js"></script>
+</body>
+</html>
