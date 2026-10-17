@@ -1577,7 +1577,7 @@
         ...(p.payments || []).map((x, i) => [x.date || '', x.label, c.pays[i].gross, c.pays[i].rate, c.pays[i].wht, c.pays[i].net]),
         ['Total', '', c.gross, '', c.wht, c.net], ['Still owed', '', c.owed], [],
         ['Costs by category', 'Amount'], ...cats.map(k => [k, c.byCat[k]]), ['TOTAL SPENT', c.spent], [],
-        ['Expected profit (contract after WHT − spent)', c.expProfit], ['Cash so far (received − spent)', c.cash],
+        ['Expected profit (contract after WHT − spent)', c.contract ? c.expProfit : ''],['Cash so far (received − spent)', c.cash],
         ['Days worked', c.days], ['Murram trips', c.trips], ['Status', c.status]];
       const G = [['Date', 'Category', 'Item', 'Qty', 'Unit', 'Price', 'Amount (KES)', 'Notes'],
         ...R.costs.map((r, i) => [r.spent_on, r.category, r.item, r.qty, r.unit, r.price, c.rows[i], r.notes]),
