@@ -16,6 +16,7 @@ Company website and CMS. Static HTML/CSS/JS backed by Supabase.
 | Products, Projects | Rice bags and prices, stock; road works, supplies and rice projects |
 | Testimonials, FAQs, Team | Shown on Home, Contact and About (testimonials and team stay hidden until there is one) |
 | Company details | Phone, WhatsApp, email, KRA PIN, registration, About text... used across the site |
+| Company profile | Tender documents (incorporation, CR12, KRA PIN & TCC, directors, trade license, NCA, power of attorney, AGPO, litigation & affidavit, bank statement, audited accounts, past experience): upload, preview, expiry warnings, download all as one ZIP. **Private, admins only** |
 | Staff | Add staff and set their role |
 | Activity log | Every change: who, when, and what it was before |
 
@@ -28,7 +29,7 @@ Anything in `[square brackets]` is a placeholder and shows **highlighted in yell
 ## Setup
 
 1. Create a Supabase project and put its URL and publishable key in `js/config.js`.
-2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`.
+2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`, then `sql/03-profile.sql`.
 3. Authentication → Users → **Add user** (your email and a password, tick Auto Confirm). Then in the SQL editor:
    `insert into public.staff (user_id, email, name, role) select id, email, 'Your name', 'admin' from auth.users where email = 'you@example.com';`
    (Later staff are added from the portal's Staff page.)

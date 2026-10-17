@@ -118,6 +118,39 @@
   </form>
 </dialog>
 
+<!-- One company profile document: preview + details -->
+<dialog id="doc-dialog" class="p-dialog xwide">
+  <form id="doc-form" method="dialog" class="doc-form">
+    <div class="p-head">
+      <h2 id="doc-heading"></h2>
+      <div class="p-tools">
+        <a class="btn btn-sm btn-quiet" id="doc-open" target="_blank" rel="noopener">Open in new tab ↗</a>
+        <a class="btn btn-sm btn-quiet" id="doc-download">Download</a>
+      </div>
+    </div>
+    <div class="doc-layout">
+      <div class="doc-view" id="doc-view"></div>
+      <div class="fields doc-fields">
+        <label class="full">Document <input name="title" list="doc-titles" maxlength="120" required></label>
+        <datalist id="doc-titles"></datalist>
+        <label class="full">Checklist item <select name="section"></select></label>
+        <label class="half">Issued on <input type="date" name="issued_on"></label>
+        <label class="half">Expires on <input type="date" name="expires_on"></label>
+        <span class="help full">Leave the expiry empty if it doesn't expire. TCCs, trade and NCA licenses do.</span>
+        <label class="full">Notes <textarea name="notes" rows="3"></textarea></label>
+        <p class="muted small full" id="doc-info"></p>
+      </div>
+    </div>
+    <p class="form-status err" id="doc-error" role="alert"></p>
+    <div class="d-actions">
+      <button type="button" class="btn-text danger" id="doc-delete">Delete</button>
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-sm btn-quiet" data-close>Close</button>
+      <button type="submit" class="btn btn-sm btn-navy">Save</button>
+    </div>
+  </form>
+</dialog>
+
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3"></script>

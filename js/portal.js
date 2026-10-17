@@ -5,7 +5,8 @@
      sales  : Inquiries, Products, Media
    Products, projects, news, testimonials, FAQs and team share one editor,
    described by RESOURCES below. Photos live in the media library (table
-   "media", storage bucket "site"). */
+   "media", storage bucket "site"). Tender documents (Company profile) are
+   private: table "company_docs", storage bucket "profile", admins only. */
 (function(){
   const D = window.KANAM_DEFAULTS;
   const cfg = window.KANAM_CONFIG || {};
@@ -108,6 +109,7 @@
     { id: 'faqs', label: 'FAQs', roles: ['admin', 'editor'] },
     { id: 'team', label: 'Team', roles: ['admin', 'editor'] },
     { id: 'settings', label: 'Company details', roles: ['admin', 'editor'], group: 'Company' },
+    { id: 'profile', label: 'Company profile', roles: ['admin'] },
     { id: 'staff', label: 'Staff', roles: ['admin'] },
     { id: 'activity', label: 'Activity log', roles: ['admin'] }
   ];
@@ -476,12 +478,13 @@
   /* ---------------- Dashboard ---------------- */
   VIEWS.dashboard = async main => {
     const can = id => allowed(TABS.find(t => t.id === id));
-    const [inq, posts, settings, products, activity] = await Promise.all([
+    const [inq, posts, settings, products, activity, profile] = await Promise.all([
       can('inquiries') ? db.from('inquiries').select('id,status,name,kind,created_at').order('created_at', { ascending: false }).limit(200) : { data: null },
       can('posts') ? db.from('posts').select('id,status,title') : { data: null },
       db.from('settings').select('key,value'),
       db.from('products').select('id,in_stock,published'),
-      can('activity') ? db.from('activity').select('*').order('at', { ascending: false }).limit(6) : { data: null }
+      can('activity') ? db.from('activity').select('*').order('at', { ascending: false }).limit(6) : { data: null },
+      can('profile') ? profileStatus() : null
     ]);
     const saved = {};
     (settings.data || []).forEach(r => { saved[r.key] = r.value; });
@@ -495,6 +498,7 @@
         ${card((products.data || []).filter(p => p.published && p.in_stock).length + ' / ' + (products.data || []).length, 'Products in stock', 'products')}
         ${posts.data ? card(posts.data.filter(p => p.status === 'published').length, 'News published', 'posts') : ''}
         ${posts.data ? card(posts.data.filter(p => p.status === 'draft').length, 'News drafts', 'posts') : ''}
+        ${profile ? card(profile.todo, 'Tender documents missing or expiring', 'profile', profile.todo ? 'warn' : '') : ''}
         ${card(placeholders.length, 'Company details still to fill in', allowed(TABS.find(t => t.id === 'settings')) ? 'settings' : '', placeholders.length ? 'warn' : '')}
       </div>
       <div class="dash-grid">
@@ -859,9 +863,337 @@
     };
   };
 
+  /* ---------------- Company profile (tender documents) ---------------- */
+  // The checklist. "docs" are the usual documents for each item; they are
+  // offered as names when a file is uploaded.
+  const PROFILE_SECTIONS = [
+    { key: 'incorporation', title: 'Certificate of incorporation', docs: ['Certificate of incorporation'] },
+    { key: 'cr12', title: 'CR12', docs: ['CR12'], hint: 'Tenders usually want one issued in the last 12 months.' },
+    { key: 'kra', title: 'KRA PIN & tax compliance (TCC)', docs: ['Company KRA PIN certificate', 'Company TCC', 'Director KRA PIN certificate', 'Director TCC'], hint: 'Personal and company. A TCC lasts 12 months, so add its expiry date.' },
+    { key: 'directors', title: 'Directors: ID & CV', docs: ['Director ID (front and back)', 'Director CV'] },
+    { key: 'trade', title: 'Trade license', docs: ['Trade license (single business permit)'], hint: 'Renewed every year.' },
+    { key: 'nca', title: 'NCA registration (7+)', docs: ['NCA registration certificate', 'NCA practising license'], hint: 'Category 7 or higher. The practising license is renewed every year.' },
+    { key: 'authority', title: 'Authorities: power of attorney', docs: ['Power of attorney', 'Board resolution / letter of authority'] },
+    { key: 'agpo', title: 'AGPO certificate', docs: ['AGPO certificate'] },
+    { key: 'litigation', title: 'Litigation history & sworn affidavit', docs: ['Litigation history', 'Sworn affidavit'] },
+    { key: 'bank', title: 'Bank: account statement', docs: ['Bank statement', 'Bank reference letter'], hint: 'Usually the last 6 or 12 months.' },
+    { key: 'audited', title: 'Audited accounts', docs: ['Audited accounts'], hint: 'Usually the last 2 or 3 years, one file per year.' },
+    { key: 'experience', title: 'Past experience (last 3 years)', docs: ['Contract / LPO', 'Completion certificate', 'Recommendation letter'], hint: 'Contracts, LPOs and completion certificates for similar work.' },
+    { key: 'other', title: 'Other documents', docs: ['Company profile', 'Other'] }
+  ];
+  const PROFILE_BUCKET = 'profile';
+  const DOC_TYPES = '.pdf,image/jpeg,image/png,image/webp,image/heic,.doc,.docx,.xls,.xlsx';
+  const secOf = key => PROFILE_SECTIONS.find(s => s.key === key) || PROFILE_SECTIONS[PROFILE_SECTIONS.length - 1];
+  const secNum = sec => PROFILE_SECTIONS.indexOf(sec) + 1;
+  const extOf = name => (String(name).match(/\.([a-z0-9]{1,5})$/i) || [, ''])[1].toLowerCase();
+  const docKind = d => d.mime === 'application/pdf' || extOf(d.name) === 'pdf' ? 'pdf'
+    : /^image\/(jpeg|png|webp|gif)$/.test(d.mime) ? 'image' : 'other';
+  const daysTo = date => date ? Math.ceil((new Date(date + 'T23:59:59') - Date.now()) / 864e5) : null;
+  const fileSafe = s => String(s).replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 90) || 'document';
+
+  // A document whose newer copy (same name, later expiry) is uploaded is "replaced" and no longer counts.
+  function docState(d, all){
+    const n = daysTo(d.expires_on);
+    if (n == null || n > 30) return 'ok';
+    const replaced = all.some(o => o !== d && o.section === d.section && o.title === d.title && o.expires_on && o.expires_on > d.expires_on);
+    return replaced ? 'replaced' : n < 0 ? 'expired' : 'soon';
+  }
+  function sectionState(sec, docs, all, item){
+    if (item && item.not_applicable) return ['na', 'Not applicable'];
+    if (!docs.length) return sec.key === 'other' ? ['', ''] : ['missing', 'Missing'];
+    const states = docs.map(d => docState(d, all));
+    if (states.includes('expired')) return ['expired', 'Expired'];
+    if (states.includes('soon')) return ['soon', 'Renew soon'];
+    return ['ready', 'Ready'];
+  }
+  async function loadProfile(){
+    const [docs, items] = await Promise.all([
+      db.from('company_docs').select('*').order('created_at'),
+      db.from('company_profile').select('*')
+    ]);
+    if (docs.error) throw docs.error;
+    if (items.error) throw items.error;
+    return { docs: docs.data || [], items: Object.fromEntries((items.data || []).map(r => [r.key, r])) };
+  }
+  // For the dashboard: how many checklist items need attention (null if not set up yet).
+  async function profileStatus(){
+    try {
+      const { docs, items } = await loadProfile();
+      const todo = PROFILE_SECTIONS.filter(sec => ['missing', 'expired', 'soon'].includes(sectionState(sec, docs.filter(d => d.section === sec.key), docs, items[sec.key])[0])).length;
+      return { todo };
+    } catch (e){ return null; }
+  }
+
+  // Libraries for previews and the ZIP, loaded only when needed.
+  const scripts = {};
+  const loadScript = src => scripts[src] || (scripts[src] = new Promise((resolve, reject) => {
+    const s = document.createElement('script');
+    s.src = src;
+    s.onload = resolve;
+    s.onerror = () => { delete scripts[src]; reject(new Error('Could not load ' + src.split('/').pop())); };
+    document.head.appendChild(s);
+  }));
+  const PDFJS = 'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/';
+  const pdfjs = () => loadScript(PDFJS + 'pdf.min.js').then(() => {
+    window.pdfjsLib.GlobalWorkerOptions.workerSrc = PDFJS + 'pdf.worker.min.js';
+    return window.pdfjsLib;
+  });
+  // Render a PDF's pages as canvases into box (just the first page for thumbnails).
+  async function renderPdf(url, box, { width, pages = 40, isCurrent = () => true }){
+    const lib = await pdfjs();
+    const pdf = await lib.getDocument(url).promise;
+    try {
+      const n = Math.min(pdf.numPages, pages);
+      for (let i = 1; i <= n && isCurrent(); i++){
+        const page = await pdf.getPage(i);
+        const vp = page.getViewport({ scale: width * (window.devicePixelRatio || 1) / page.getViewport({ scale: 1 }).width });
+        const canvas = document.createElement('canvas');
+        canvas.width = vp.width; canvas.height = vp.height;
+        await page.render({ canvasContext: canvas.getContext('2d'), viewport: vp }).promise;
+        if (isCurrent()) box.appendChild(canvas);
+      }
+      return pdf.numPages;
+    } finally { pdf.destroy(); }
+  }
+
+  let profile = { docs: [], items: {} }, signed = {}, editingDoc = null, previewRun = 0;
+  async function signAll(docs){
+    const need = docs.map(d => d.path).filter(p => !signed[p]);
+    if (!need.length) return;
+    const { data, error } = await db.storage.from(PROFILE_BUCKET).createSignedUrls(need, 3600);
+    if (error) throw error;
+    (data || []).forEach(r => { if (r.signedUrl) signed[r.path] = r.signedUrl; });
+  }
+
+  VIEWS.profile = async main => {
+    try { profile = await loadProfile(); }
+    catch (err){
+      if (!/(does not exist|schema cache)/.test(err.message)) throw err;
+      main.innerHTML = `<div class="p-head"><h1>Company profile</h1></div>
+        <p class="empty">One more step: run <code>sql/03-profile.sql</code> in the Supabase SQL editor, then reload this page.</p>`;
+      return;
+    }
+    signed = {};
+    await signAll(profile.docs);
+    const { data: set } = await db.from('settings').select('key,value');
+    const S = Object.assign({}, D.settings);
+    (set || []).forEach(r => { if (r.value) S[r.key] = r.value; });
+    const known = v => v && !isPlaceholder(v);
+    main.innerHTML = `
+      <div class="p-head">
+        <h1>Company profile</h1>
+        <div class="p-tools"><button class="btn btn-sm btn-navy" type="button" id="doc-zip">Download all (ZIP)</button></div>
+      </div>
+      <div class="panel-box profile-head">
+        <div><b>${esc(S.company)}</b><span class="muted">${[S.email, S.phone, S.postal].filter(known).map(esc).join(' · ')}</span>
+          <span class="muted small">${[known(S.reg_no) && 'Reg. ' + S.reg_no, known(S.kra_pin) && 'KRA PIN ' + S.kra_pin].filter(Boolean).map(esc).join(' · ')}</span></div>
+        <div id="profile-summary" class="profile-summary"></div>
+      </div>
+      <p class="muted small">Private: only admins can see these files. Upload PDFs, phone photos or scans, Word or Excel files (up to 25 MB each). Add expiry dates and the portal warns you 30 days before.</p>
+      <div class="doc-cards" id="doc-cards"></div>`;
+    $('doc-zip').onclick = downloadZip;
+    drawProfile();
+  };
+
+  function drawProfile(){
+    const { docs, items } = profile;
+    const counts = { ready: 0, missing: 0, expired: 0, soon: 0, na: 0 };
+    $('doc-cards').innerHTML = PROFILE_SECTIONS.map(sec => {
+      const mine = docs.filter(d => d.section === sec.key);
+      const item = items[sec.key];
+      const [st, label] = sectionState(sec, mine, docs, item);
+      if (st in counts) counts[st]++;
+      return `<section class="doc-card st-${st || 'none'}" data-sec="${sec.key}">
+        <header>
+          <span class="doc-num">${secNum(sec)}</span>
+          <div class="doc-card-title"><h2>${esc(sec.title)}</h2>${sec.hint ? `<p class="muted small">${esc(sec.hint)}</p>` : ''}</div>
+          ${label ? `<span class="pill st-${st}">${label}</span>` : ''}
+        </header>
+        ${mine.length ? `<div class="doc-files">${mine.map(d => docTile(d, docs)).join('')}</div>` : ''}
+        <div class="doc-actions">
+          <label class="btn btn-sm btn-quiet file-btn">Upload <input type="file" accept="${DOC_TYPES}" multiple hidden data-upload></label>
+          ${sec.key === 'other' ? '' : `<label class="check small"><input type="checkbox" data-na${item && item.not_applicable ? ' checked' : ''}> Not applicable</label>`}
+        </div>
+      </section>`;
+    }).join('');
+    const total = PROFILE_SECTIONS.length - 1;
+    $('profile-summary').innerHTML = `<b>${counts.ready + counts.na} of ${total}</b> ready`
+      + [['missing', 'missing'], ['expired', 'expired'], ['soon', 'to renew soon']].filter(([k]) => counts[k]).map(([k, t]) => ` <span class="pill st-${k}">${counts[k]} ${t}</span>`).join('');
+
+    $('doc-cards').querySelectorAll('.doc-card').forEach(card => {
+      const sec = secOf(card.dataset.sec);
+      card.querySelector('[data-upload]').onchange = e => uploadDocs(sec, [...e.target.files]);
+      const na = card.querySelector('[data-na]');
+      if (na) na.onchange = async () => {
+        const row = { key: sec.key, not_applicable: na.checked, updated_at: new Date().toISOString() };
+        const { error } = await db.from('company_profile').upsert([row], { onConflict: 'key' });
+        if (error){ toast('Not saved: ' + error.message); na.checked = !na.checked; return; }
+        profile.items[sec.key] = Object.assign(profile.items[sec.key] || {}, row);
+        drawProfile();
+      };
+      card.querySelectorAll('.doc-tile').forEach(b => { b.onclick = () => openDoc(profile.docs.find(d => d.id === b.dataset.id)); });
+    });
+    // Thumbnails: photos straight away, PDFs one at a time.
+    const queue = [];
+    $('doc-cards').querySelectorAll('.doc-thumb').forEach(t => {
+      const d = docs.find(x => x.id === t.dataset.id), url = signed[d.path];
+      if (!url) return;
+      const kind = docKind(d);
+      if (kind === 'image') t.style.backgroundImage = `url('${url}')`;
+      if (kind === 'pdf') queue.push(() => renderPdf(url, t, { width: 120, pages: 1 }).then(() => t.classList.add('drawn')));
+    });
+    (async () => { for (const job of queue){ try { await job(); } catch (e) {} } })();
+  }
+
+  function docTile(d, all){
+    const st = docState(d, all), n = daysTo(d.expires_on);
+    const sub = d.expires_on ? (n < 0 ? `Expired ${day(d.expires_on)}` : `Expires ${day(d.expires_on)}`)
+      : d.issued_on ? `Issued ${day(d.issued_on)}` : day(d.created_at);
+    return `<button type="button" class="doc-tile" data-id="${d.id}" title="${esc(d.name)}">
+      <span class="doc-thumb kind-${docKind(d)}" data-id="${d.id}"><span class="doc-ext">${esc(extOf(d.name).toUpperCase() || 'FILE')}</span></span>
+      <span class="doc-title">${esc(d.title || d.name)}</span>
+      <span class="doc-sub${st === 'expired' ? ' is-err' : st === 'soon' ? ' is-warn' : ''}">${esc(sub)}${st === 'replaced' ? ' · replaced' : ''}</span>
+    </button>`;
+  }
+
+  async function uploadDocs(sec, files){
+    if (!files.length) return;
+    const added = [];
+    for (const [i, file] of files.entries()){
+      toast(files.length > 1 ? `Uploading ${i + 1} of ${files.length}…` : 'Uploading…');
+      try {
+        const ext = extOf(file.name) || 'pdf';
+        const path = `${sec.key}/${crypto.randomUUID()}.${ext}`;
+        const up = await db.storage.from(PROFILE_BUCKET).upload(path, file, { contentType: file.type || undefined, upsert: false });
+        if (up.error) throw /mime|type/i.test(up.error.message) ? new Error('only PDFs, photos, Word and Excel files can be uploaded') : /size|large/i.test(up.error.message) ? new Error('the file is over 25 MB') : up.error;
+        const title = sec.docs.length === 1 ? sec.docs[0] : file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
+        const { data, error } = await db.from('company_docs').insert([{ section: sec.key, title, path, name: file.name, mime: file.type, size: file.size }]).select().single();
+        if (error){ await db.storage.from(PROFILE_BUCKET).remove([path]); throw error; }
+        profile.docs.push(data);
+        added.push(data);
+      } catch (err){ toast(`${file.name}: ${err.message}`); await new Promise(r => setTimeout(r, 1800)); }
+    }
+    if (!added.length) return;
+    await signAll(added).catch(() => {});
+    drawProfile();
+    if (added.length === 1) openDoc(added[0], true);
+    else toast(`Uploaded ${added.length} files. Tap each one to name it and add dates.`);
+  }
+
+  async function openDoc(d, isNew){
+    editingDoc = d;
+    const f = $('doc-form'), sec = secOf(d.section);
+    $('doc-heading').textContent = isNew ? 'Name this document' : d.title || d.name;
+    f.title.value = d.title || '';
+    f.section.innerHTML = PROFILE_SECTIONS.map(s => `<option value="${s.key}"${s.key === d.section ? ' selected' : ''}>${secNum(s)}. ${esc(s.title)}</option>`).join('');
+    f.issued_on.value = d.issued_on || '';
+    f.expires_on.value = d.expires_on || '';
+    f.notes.value = d.notes || '';
+    const fillTitles = () => { $('doc-titles').innerHTML = secOf(f.section.value).docs.map(t => `<option value="${esc(t)}">`).join(''); };
+    f.section.onchange = fillTitles;
+    fillTitles();
+    $('doc-info').textContent = [d.name, d.size ? (d.size > 1048576 ? (d.size / 1048576).toFixed(1) + ' MB' : Math.round(d.size / 1024) + ' KB') : '', 'uploaded ' + day(d.created_at)].filter(Boolean).join(' · ');
+    $('doc-error').textContent = '';
+    disarm($('doc-delete'));
+    const url = signed[d.path] || '';
+    $('doc-open').href = url;
+    $('doc-download').removeAttribute('href');
+    db.storage.from(PROFILE_BUCKET).createSignedUrl(d.path, 600, { download: downloadName(d) })
+      .then(({ data }) => { if (editingDoc === d && data) $('doc-download').href = data.signedUrl; });
+    if (!$('doc-dialog').open) $('doc-dialog').showModal();
+
+    // Preview
+    const view = $('doc-view'), run = ++previewRun, kind = docKind(d);
+    view.innerHTML = '';
+    view.scrollTop = 0;
+    if (!url){ view.innerHTML = '<p class="doc-none">Could not open the file. Reload the page and try again.</p>'; return; }
+    if (kind === 'image'){ view.innerHTML = `<img src="${esc(url)}" alt="${esc(d.title)}">`; return; }
+    if (kind !== 'pdf'){
+      view.innerHTML = `<p class="doc-none"><b>${esc(extOf(d.name).toUpperCase() || 'This')} file</b>No preview for this kind of file. Use <b>Download</b> to open it.</p>`;
+      return;
+    }
+    view.innerHTML = '<p class="doc-none">Loading preview…</p>';
+    const pages = document.createElement('div');
+    pages.className = 'doc-pages';
+    try {
+      const n = await renderPdf(url, pages, { width: Math.min(view.clientWidth || 600, 900) - 24, isCurrent: () => run === previewRun });
+      if (run !== previewRun) return;
+      view.innerHTML = '';
+      view.appendChild(pages);
+      if (n > 40) view.insertAdjacentHTML('beforeend', `<p class="doc-none">Showing the first 40 of ${n} pages. Open it in a new tab to see the rest.</p>`);
+    } catch (err){
+      if (run === previewRun) view.innerHTML = `<p class="doc-none">The preview didn't load (${esc(err.message)}). Use <b>Open in new tab</b> instead.</p>`;
+    }
+  }
+  $('doc-dialog').addEventListener('close', () => { previewRun++; $('doc-view').innerHTML = ''; });
+
+  const downloadName = d => {
+    const sec = secOf(d.section);
+    return `${String(secNum(sec)).padStart(2, '0')} ${fileSafe(d.title || d.name.replace(/\.[^.]+$/, ''))}${extOf(d.name) ? '.' + extOf(d.name) : ''}`;
+  };
+
+  $('doc-form').onsubmit = async e => {
+    e.preventDefault();
+    const f = e.target;
+    if (f.expires_on.value && f.issued_on.value && f.expires_on.value < f.issued_on.value){ $('doc-error').textContent = 'The expiry date is before the issue date.'; return; }
+    const patch = { title: f.title.value.trim(), section: f.section.value, issued_on: f.issued_on.value || null,
+      expires_on: f.expires_on.value || null, notes: f.notes.value.trim(), updated_at: new Date().toISOString() };
+    const { data, error } = await db.from('company_docs').update(patch).eq('id', editingDoc.id).select().single();
+    if (error){ $('doc-error').textContent = error.message; return; }
+    Object.assign(editingDoc, data);
+    $('doc-dialog').close();
+    if (current === 'profile') drawProfile();
+    toast('Saved');
+  };
+  $('doc-delete').onclick = async () => {
+    if (!armed($('doc-delete'))) return;
+    const d = editingDoc;
+    const { error } = await db.from('company_docs').delete().eq('id', d.id);
+    if (error){ $('doc-error').textContent = error.message; return; }
+    await db.storage.from(PROFILE_BUCKET).remove([d.path]);
+    profile.docs = profile.docs.filter(x => x !== d);
+    $('doc-dialog').close();
+    if (current === 'profile') drawProfile();
+    toast('Deleted');
+  };
+
+  // Every current document in one ZIP, in checklist order, ready to attach to a tender.
+  async function downloadZip(){
+    const btn = $('doc-zip');
+    const docs = PROFILE_SECTIONS.flatMap(sec => profile.docs.filter(d => d.section === sec.key && docState(d, profile.docs) !== 'replaced'));
+    if (!docs.length){ toast('Nothing uploaded yet'); return; }
+    btn.disabled = true;
+    try {
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
+      await signAll(docs);
+      const zip = new JSZip(), used = new Set();
+      for (const [i, d] of docs.entries()){
+        toast(`Adding ${i + 1} of ${docs.length}…`);
+        const sec = secOf(d.section);
+        const folder = `${String(secNum(sec)).padStart(2, '0')} ${fileSafe(sec.title)}`;
+        let name = `${folder}/${downloadName(d).slice(3)}`, n = 2;
+        while (used.has(name.toLowerCase())) name = `${folder}/${downloadName(d).slice(3).replace(/(\.[a-z0-9]+)?$/i, ` (${n++})$1`)}`;
+        used.add(name.toLowerCase());
+        const res = await fetch(signed[d.path]);
+        if (!res.ok) throw new Error(`${d.title || d.name} could not be downloaded`);
+        zip.file(name, await res.blob());
+      }
+      toast('Making the ZIP…');
+      const blob = await zip.generateAsync({ type: 'blob' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `Kanam Logistics - company profile - ${new Date().toISOString().slice(0, 10)}.zip`;
+      a.click();
+      setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+      toast(`Downloaded ${docs.length} files`);
+    } catch (err){ toast('ZIP failed: ' + err.message); }
+    finally { btn.disabled = false; }
+  }
+
   /* ---------------- Activity log ---------------- */
   const TABLE_TEXT = { content: 'page text', media: 'photo', posts: 'news post', testimonials: 'testimonial', faqs: 'FAQ', team: 'team member',
-    projects: 'project', products: 'product', settings: 'company detail', staff: 'staff member', inquiries: 'inquiry' };
+    projects: 'project', products: 'product', settings: 'company detail', staff: 'staff member', inquiries: 'inquiry',
+    company_docs: 'profile document', company_profile: 'profile item' };
   function describe(a){
     const r = a.after || a.before || {};
     const name = r.title || r.name || r.question || r.key || r.email || r.path || '';
