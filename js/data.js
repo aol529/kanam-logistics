@@ -38,6 +38,13 @@ window.KANAM_DEFAULTS = {
     { id: 'f4', topic: 'Supplies', question: 'Do you supply institutions on LPO / LSO?', answer: 'Yes. Send us your requirements and we will quote, then deliver on the schedule you set, with delivery notes and invoices.' },
     { id: 'f5', topic: 'General', question: 'Can you share company documents for a tender?', answer: 'Yes. Ask us for the certificate of incorporation, KRA PIN and tax compliance certificate and our company profile.' }
   ],
+  // Machinery for hire (Services page). Rates are set in the portal: empty = "Call for rates".
+  equipment: [
+    { id: 'e1', name: 'Motor grader', description: 'For grading and reshaping roads, levelling sites and murram spreading.', rate: null, rate_unit: 'per hour',
+      terms: 'With operator. Fuel by client. Transport to site charged separately.', status: 'available' },
+    { id: 'e2', name: 'Excavator', description: 'For digging, trenching, loading, drainage and culvert works.', rate: null, rate_unit: 'per hour',
+      terms: 'With operator. Fuel by client. Transport to site charged separately.', status: 'coming_soon' }
+  ],
   testimonials: [],
   team: [],
 

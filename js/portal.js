@@ -105,6 +105,7 @@
     { id: 'posts', label: 'News', roles: ['admin', 'editor'] },
     { id: 'media', label: 'Media library', roles: ['admin', 'editor', 'sales'] },
     { id: 'products', label: 'Products', roles: ['admin', 'editor', 'sales'] },
+    { id: 'equipment', label: 'Machinery hire', roles: ['admin', 'editor', 'sales'] },
     { id: 'projects', label: 'Projects', roles: ['admin', 'editor'] },
     { id: 'testimonials', label: 'Testimonials', roles: ['admin', 'editor'] },
     { id: 'faqs', label: 'FAQs', roles: ['admin', 'editor'] },
@@ -206,6 +207,26 @@
         { name: 'sort', label: 'Order', type: 'number', inline: true, step: '1' }
       ],
       defaults: list => ({ name: 'Pishori rice', in_stock: true, published: true, sort: list.length + 1 })
+    },
+    equipment: {
+      table: 'equipment', single: 'machine', order: [['sort'], ['name']],
+      title: r => r.name, sub: r => r.description,
+      thumb: r => r.image_path, thumbText: () => '⛏',
+      right: r => `<b>${r.rate ? esc(money(r.rate)) + ' ' + esc(r.rate_unit || '') : 'Call for rates'}</b>${{ available: ' <span class="pill done">Available</span>', on_hire: ' <span class="pill new">On hire</span>', coming_soon: ' <span class="pill contacted">Coming soon</span>' }[r.status] || ''}${r.published ? '' : ' <span class="pill hidden">Hidden</span>'}`,
+      search: r => [r.name, r.description, r.terms].join(' '),
+      fields: [
+        { name: 'name', label: 'Machine', type: 'text', required: true, placeholder: 'e.g. Motor grader' },
+        { name: 'rate', label: 'Hire rate (KES)', type: 'number', half: true, step: '1', placeholder: 'Blank = Call for rates' },
+        { name: 'rate_unit', label: 'Charged', type: 'select', half: true, options: [['per hour', 'Per hour'], ['per day', 'Per day'], ['per week', 'Per week'], ['per month', 'Per month'], ['per km', 'Per km']] },
+        { name: 'description', label: 'What it is used for', type: 'textarea', rows: 2 },
+        { name: 'terms', label: 'Terms', type: 'textarea', rows: 2, help: 'e.g. With operator. Fuel by client. Minimum 8 hours. Transport to site charged separately.' },
+        { name: 'status', label: 'Status', type: 'select', half: true, options: [['available', 'Available'], ['on_hire', 'On hire (book ahead)'], ['coming_soon', 'Coming soon']] },
+        { name: 'image_path', label: 'Photo', type: 'image' },
+        { name: 'published', label: 'Show on the website', type: 'checkbox', inline: true },
+        { name: 'sort', label: 'Order', type: 'number', inline: true, step: '1' }
+      ],
+      defaults: list => ({ rate_unit: 'per hour', status: 'available', published: true, sort: list.length + 1,
+        terms: 'With operator. Fuel by client. Transport to site charged separately.' })
     },
     projects: {
       table: 'projects', single: 'project', order: [['sort'], ['created_at', false]],
@@ -556,7 +577,7 @@
     $('inq-list').innerHTML = list.length ? `<ul class="rows no-thumb">${list.map(i => `
       <li><button type="button" class="row" data-id="${i.id}">
         <span><span class="title">${esc(i.name)} · ${esc(i.kind)}</span>
-          <span class="sub">${esc([i.kind === 'Rice order' ? [i.product, i.quantity && '× ' + i.quantity].filter(Boolean).join(' ') : '', i.message].filter(Boolean).join(' — '))}</span></span>
+          <span class="sub">${esc([i.kind === 'Rice order' ? [i.product, i.quantity && '× ' + i.quantity].filter(Boolean).join(' ') : i.kind === 'Machinery hire' ? [i.product, i.quantity && 'for ' + i.quantity].filter(Boolean).join(' ') : '', i.message].filter(Boolean).join(' — '))}</span></span>
         <span class="right"><span class="pill ${i.status}">${esc(i.status)}</span>${esc(when(i.created_at))}</span>
       </button></li>`).join('')}</ul>`
       : `<p class="empty">${inquiries.length ? 'Nothing matches.' : 'No inquiries yet. Orders and quote requests from the website will appear here.'}</p>`;
@@ -583,8 +604,8 @@
       ['Received', when(i.created_at)],
       ['Phone', `<a href="tel:${esc(tel)}">${esc(i.phone)}</a> · <a href="https://wa.me/${esc(wa)}" target="_blank" rel="noopener">WhatsApp</a>`, true],
       i.email && ['Email', `<a href="mailto:${esc(i.email)}">${esc(i.email)}</a>`, true],
-      i.product && ['Product', i.product],
-      i.quantity && ['Quantity', i.quantity],
+      i.product && [i.kind === 'Machinery hire' ? 'Machine' : 'Product', i.product],
+      i.quantity && [i.kind === 'Machinery hire' ? 'Hire period' : 'Quantity', i.quantity],
       i.message && ['Message', i.message]
     ].filter(Boolean);
     $('inq-details').innerHTML = rows.map(([k, v, html]) => `<dt>${k}</dt><dd>${html ? v : esc(v)}</dd>`).join('');
@@ -1651,7 +1672,7 @@
   /* ---------------- Activity log ---------------- */
   const TABLE_TEXT = { content: 'page text', media: 'photo', posts: 'news post', testimonials: 'testimonial', faqs: 'FAQ', team: 'team member',
     projects: 'project', products: 'product', settings: 'company detail', staff: 'staff member', inquiries: 'inquiry',
-    company_docs: 'profile document', company_profile: 'profile item', rice_batches: 'rice batch', rice_sales: 'rice sale' };
+    company_docs: 'profile document', company_profile: 'profile item', rice_batches: 'rice batch', rice_sales: 'rice sale', equipment: 'machine' };
   function describe(a){
     const r = a.after || a.before || {};
     const name = r.title || r.name || r.buyer || r.question || r.key || r.email || r.path || '';

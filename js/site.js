@@ -20,6 +20,7 @@
   let S = Object.assign({}, D.settings);
   let products = D.products.slice();
   let projects = D.projects.slice();
+  let equipment = (D.equipment || []).slice();
   let faqs = (D.faqs || []).slice(), testimonials = [], team = [], posts = [];
   let C = {};                       // edited page text from the CMS, by data-c key
   let loaded = !db;                 // false until Supabase has answered
@@ -105,7 +106,7 @@
   async function load(){
     if (!db) return;
     const needPosts = document.querySelector('[data-news]');
-    const [s, p, j, c, f, t, m, n] = await Promise.all([
+    const [s, p, j, c, f, t, m, n, e] = await Promise.all([
       db.from('settings').select('key,value'),
       db.from('products').select('*').eq('published', true).order('sort').order('size_kg'),
       db.from('projects').select('*').eq('published', true).order('sort').order('created_at', { ascending: false }),
@@ -114,7 +115,8 @@
       db.from('testimonials').select('*').eq('published', true).order('sort'),
       db.from('team').select('*').eq('published', true).order('sort'),
       needPosts ? db.from('posts').select('id,slug,title,excerpt,body,cover_path,published_at,author_name').eq('status', 'published')
-        .lte('published_at', new Date().toISOString()).order('published_at', { ascending: false }).limit(100) : { data: [] }
+        .lte('published_at', new Date().toISOString()).order('published_at', { ascending: false }).limit(100) : { data: [] },
+      db.from('equipment').select('*').eq('published', true).order('sort').order('name')
     ]);
     if (!s.error) (s.data || []).forEach(r => { if (r.value) S[r.key] = r.value; });
     if (!p.error && p.data && p.data.length) products = p.data;
@@ -124,8 +126,9 @@
     if (!t.error) testimonials = t.data || [];
     if (!m.error) team = m.data || [];
     if (!n.error) posts = n.data || [];
+    if (!e.error && e.data && e.data.length) equipment = e.data;
     // Tables added by sql/02-cms.sql may not exist yet: the defaults stand in.
-    [s, p, j, c, f, t, m, n].forEach(r => { if (r.error) console.warn('Kanam: using default content –', r.error.message); });
+    [s, p, j, c, f, t, m, n, e].forEach(r => { if (r.error) console.warn('Kanam: using default content –', r.error.message); });
   }
 
   // Page text edited in the portal replaces the text written in the HTML.
@@ -173,6 +176,27 @@
       const sel = $('#quote-form [name=product]');
       if (sel){ sel.value = a.dataset.order; const k = $('#quote-form [name=kind]'); if (k) k.value = 'Rice order'; toggleKind(); }
     }));
+  }
+
+  const HIRE_STATUS = { available: 'Available', on_hire: 'On hire – book ahead', coming_soon: 'Coming soon' };
+  function equipmentCard(m){
+    const img = imgUrl(m.image_path);
+    return `
+      <article class="machine st-${esc(m.status)}">
+        <div class="machine-img">${img ? `<img src="${esc(img)}" alt="${esc(m.name)}" loading="lazy">`
+          : `<div class="img-ph"><span>Photo: ${esc(m.name)}</span></div>`}
+          <span class="machine-status">${HIRE_STATUS[m.status] || ''}</span></div>
+        <div class="machine-body">
+          <h3>${esc(m.name)}</h3>
+          ${m.description ? `<p>${esc(m.description)}</p>` : ''}
+          <p class="price">${m.rate ? `${money(m.rate)} <small>${esc(m.rate_unit || '')}</small>` : 'Call for rates'}</p>
+          ${m.terms ? `<p class="terms">${esc(m.terms)}</p>` : ''}
+          <a class="btn btn-sm" href="contact.html?kind=Machinery%20hire&machine=${encodeURIComponent(m.name)}#quote">${m.status === 'coming_soon' ? 'Register interest' : 'Book / ask'}</a>
+        </div>
+      </article>`;
+  }
+  function renderEquipment(){
+    $$('[data-equipment]').forEach(box => { box.innerHTML = equipment.map(equipmentCard).join('') || '<p class="muted">Ask us what is available.</p>'; });
   }
 
   function projectCard(p){
@@ -295,8 +319,9 @@
   function toggleKind(){
     const f = $('#quote-form');
     if (!f) return;
-    const rice = f.kind.value === 'Rice order';
+    const rice = f.kind.value === 'Rice order', hire = f.kind.value === 'Machinery hire';
     f.querySelectorAll('.rice-only').forEach(el => { el.hidden = !rice; });
+    f.querySelectorAll('.hire-only').forEach(el => { el.hidden = !hire; });
   }
 
   function form(){
@@ -304,17 +329,21 @@
     if (!f) return;
     f.product.innerHTML = '<option value="">Choose a bag size</option>' +
       products.filter(p => p.in_stock !== false).map(p => `<option>${esc(productName(p))}</option>`).join('');
+    if (f.machine) f.machine.innerHTML = '<option value="">Choose a machine</option>' +
+      equipment.map(m => `<option>${esc(m.name)}</option>`).join('');
     const params = new URLSearchParams(location.search);
-    const want = params.get('kind'), wantProduct = params.get('product');
+    const want = params.get('kind'), wantProduct = params.get('product'), wantMachine = params.get('machine');
     if (want && [...f.kind.options].some(o => o.value === want)) f.kind.value = want;
     if (wantProduct && [...f.product.options].some(o => o.value === wantProduct)){ f.kind.value = 'Rice order'; f.product.value = wantProduct; }
+    if (wantMachine && f.machine && [...f.machine.options].some(o => o.value === wantMachine)){ f.kind.value = 'Machinery hire'; f.machine.value = wantMachine; }
     f.kind.onchange = toggleKind;
     toggleKind();
 
     const note = $('#quote-status');
     const message = row => [
       `Hello Kanam Logistics, this is ${row.name} (${row.phone}${row.email ? ', ' + row.email : ''}).`,
-      row.kind === 'Rice order' ? `I'd like to order: ${row.product || 'rice'}${row.quantity ? ' × ' + row.quantity : ''}.` : `Enquiry: ${row.kind}.`,
+      row.kind === 'Rice order' ? `I'd like to order: ${row.product || 'rice'}${row.quantity ? ' × ' + row.quantity : ''}.`
+        : row.kind === 'Machinery hire' ? `I'd like to hire: ${row.product || 'a machine'}${row.quantity ? ', for ' + row.quantity : ''}.` : `Enquiry: ${row.kind}.`,
       row.message
     ].filter(Boolean).join('\n');
 
@@ -323,8 +352,8 @@
       if (f.website.value) return;          // a bot filled the hidden field
       const row = {
         kind: f.kind.value, name: f.name.value.trim(), phone: f.phone.value.trim(), email: f.email.value.trim(),
-        product: f.kind.value === 'Rice order' ? f.product.value : '',
-        quantity: f.kind.value === 'Rice order' ? f.quantity.value.trim() : '',
+        product: f.kind.value === 'Rice order' ? f.product.value : f.kind.value === 'Machinery hire' && f.machine ? f.machine.value : '',
+        quantity: f.kind.value === 'Rice order' ? f.quantity.value.trim() : f.kind.value === 'Machinery hire' && f.hire_for ? f.hire_for.value.trim() : '',
         message: f.message.value.trim()
       };
       const wa = waLink(message(row));
@@ -354,7 +383,7 @@
   }
 
   /* ------------------------------ Start ------------------------------ */
-  function renderAll(){ applyContent(); fill(); renderProducts(); renderProjects(); renderFaqs(); renderTestimonials(); renderTeam(); renderNews(); form(); }
+  function renderAll(){ applyContent(); fill(); renderProducts(); renderEquipment(); renderProjects(); renderFaqs(); renderTestimonials(); renderTeam(); renderNews(); form(); }
   layout();
   renderAll();
   load().then(() => { loaded = true; renderAll(); })

@@ -248,3 +248,20 @@ textarea{resize:vertical;min-height:110px;}
 .prose img{border-radius:12px;margin:1.2em 0;}
 .prose blockquote{margin:1.2em 0;padding:4px 0 4px 18px;border-left:4px solid var(--amber);color:var(--muted);font-style:italic;}
 .prose ul,.prose ol{padding-left:1.3em;}
+
+/* Machinery hire (Services) */
+.service.service-wide{grid-template-columns:minmax(0,1fr);}
+.machines{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:20px;margin:22px 0 14px;}
+.machine{background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);overflow:hidden;box-shadow:var(--shadow);display:flex;flex-direction:column;}
+.machine-img{position:relative;}
+.machine-img img{display:block;width:100%;aspect-ratio:4/3;object-fit:cover;}
+.machine-img .img-ph{border:0;border-bottom:2px dashed #d6cdb8;border-radius:0;}
+.machine-status{position:absolute;top:12px;left:12px;background:var(--ok);color:#fff;font:600 12.5px Inter,sans-serif;padding:4px 10px;border-radius:999px;}
+.machine.st-on_hire .machine-status{background:var(--amber-2);}
+.machine.st-coming_soon .machine-status{background:var(--navy);}
+.machine-body{padding:18px 20px 20px;display:flex;flex-direction:column;gap:8px;flex:1;}
+.machine-body h3{margin:0;}
+.machine-body p{margin:0;color:var(--muted);font-size:14.5px;}
+.machine-body .price{margin-top:auto!important;padding-top:6px;}
+.machine-body .terms{font-size:13.5px;}
+.machine .btn{align-self:flex-start;margin-top:4px;}

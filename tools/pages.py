@@ -21,11 +21,12 @@ ICON = {
     "phone": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M5 4h4l2 5-2.5 1.5a11 11 0 0 0 5 5L15 13l5 2v4a2 2 0 0 1-2 2A16 16 0 0 1 3 6a2 2 0 0 1 2-2z"/></svg>',
     "mail": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="5" width="18" height="14" rx="2"/><path d="m3 7 9 6 9-6"/></svg>',
     "tag": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 12V4h8l10 10-8 8z"/><circle cx="7.5" cy="8.5" r="1.5"/></svg>',
+    "digger": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 18h12M3 18v-3h9v3"/><circle cx="5" cy="19.5" r="1"/><circle cx="10" cy="19.5" r="1"/><path d="M7 15v-3h4l1 3M11 12l5-7 4 4-2 3"/><path d="M20 9v4l-2 1"/></svg>',
     "chat": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v11H8l-4 4z"/></svg>',
 }
 
 SKIP_ATTRS = {"data-s", "data-tel", "data-mail", "data-products", "data-projects", "data-faqs",
-              "data-news", "data-team", "data-testimonials", "id"}
+              "data-news", "data-team", "data-testimonials", "data-equipment", "id"}
 INLINE_OK = {"br", "strong", "b", "em"}
 
 def add_keys(body, page_key):
@@ -84,7 +85,7 @@ def page(file, title, desc, body, form=False):
     open(os.path.join(ROOT, file), "w").write(html)
 
 def quote_form(heading, anchor, default_kind="Rice order", intro=""):
-    kinds = ["Rice order", "Supplies & delivery", "Road works", "Other"]
+    kinds = ["Rice order", "Supplies & delivery", "Road works", "Machinery hire", "Other"]
     opts = "".join(f'<option{" selected" if k == default_kind else ""}>{k}</option>' for k in kinds)
     return f"""
 <form class="quote" id="quote-form" novalidate>
@@ -97,6 +98,10 @@ def quote_form(heading, anchor, default_kind="Rice order", intro=""):
   <div class="row2 rice-only">
     <label>Bag size <select name="product"></select></label>
     <label>How many bags? <input name="quantity" inputmode="numeric" maxlength="60" placeholder="e.g. 4"></label>
+  </div>
+  <div class="row2 hire-only" hidden>
+    <label>Machine <select name="machine"></select></label>
+    <label>For how long? <input name="hire_for" maxlength="60" placeholder="e.g. 3 days"></label>
   </div>
   <div class="row2">
     <label>Your name <input name="name" required maxlength="120" autocomplete="name"></label>
@@ -131,7 +136,7 @@ CTA = """
 </section>"""
 
 SERVICES_CARDS = f"""
-<div class="grid grid-3">
+<div class="grid grid-4">
   <article class="card">
     <div class="icon">{ICON['truck']}</div>
     <h3>Supplies & delivery</h3>
@@ -149,6 +154,12 @@ SERVICES_CARDS = f"""
     <h3>Road works</h3>
     <p>Rural road maintenance (grading, gravelling, drainage) for public authorities.</p>
     <a class="more" href="services.html#roads">Our road works →</a>
+  </article>
+  <article class="card">
+    <div class="icon">{ICON['digger']}</div>
+    <h3>Machinery hire</h3>
+    <p>Hire our motor grader, and soon our excavator, with an experienced operator.</p>
+    <a class="more" href="services.html#hire">See machines and rates →</a>
   </article>
 </div>"""
 
@@ -336,7 +347,7 @@ f"""
 
 # ------------------------------ Services ------------------------------
 page("services.html", "Services – Kanam Logistics Limited",
-     "Institutional supplies and delivery, Pishori rice trading, and rural road maintenance in Western Kenya.",
+     "Institutional supplies and delivery, Pishori rice trading, rural road maintenance and machinery hire (grader, excavator) in Western Kenya.",
 f"""
 <section class="page-hero">
   <div class="wrap">
@@ -392,6 +403,17 @@ f"""
       <a class="btn btn-navy" href="contact.html?kind=Road%20works#quote">Talk to us about a contract</a>
     </div>
     <div class="service-img"><div class="img-ph"><span>Photo: a road before and after</span></div></div>
+  </div>
+
+  <div class="service service-wide" id="hire">
+    <div>
+      <span class="eyebrow">Machinery hire</span>
+      <h2>Heavy machinery for hire</h2>
+      <p>Hire our machines for road works, site levelling, drainage and earthworks. Every machine comes with an experienced operator.</p>
+      <div class="machines" data-equipment></div>
+      <p class="muted small">Rates exclude fuel unless stated. Ask us about longer hire periods and transport to your site.</p>
+      <a class="btn btn-navy" href="contact.html?kind=Machinery%20hire#quote">Ask about machinery hire</a>
+    </div>
   </div>
 </div>
 {CTA}

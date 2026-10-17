@@ -45,11 +45,15 @@
 <span id="order" style="position:relative;top:-90px"></span>
 <h2>Order rice</h2>
 <label>What do you need?
-    <select name="kind"><option selected="">Rice order</option><option>Supplies &amp; delivery</option><option>Road works</option><option>Other</option></select>
+    <select name="kind"><option selected="">Rice order</option><option>Supplies &amp; delivery</option><option>Road works</option><option>Machinery hire</option><option>Other</option></select>
 </label>
 <div class="row2 rice-only">
 <label>Bag size <select name="product"></select></label>
 <label>How many bags? <input inputmode="numeric" maxlength="60" name="quantity" placeholder="e.g. 4"/></label>
+</div>
+<div class="row2 hire-only" hidden="">
+<label>Machine <select name="machine"></select></label>
+<label>For how long? <input maxlength="60" name="hire_for" placeholder="e.g. 3 days"/></label>
 </div>
 <div class="row2">
 <label>Your name <input autocomplete="name" maxlength="120" name="name" required=""/></label>

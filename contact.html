@@ -41,11 +41,15 @@
 <h2>Send us a request</h2>
 <p class="muted" style="margin:0">For rice, supplies or road works. We will call you back with a price.</p>
 <label>What do you need?
-    <select name="kind"><option>Rice order</option><option selected="">Supplies &amp; delivery</option><option>Road works</option><option>Other</option></select>
+    <select name="kind"><option>Rice order</option><option selected="">Supplies &amp; delivery</option><option>Road works</option><option>Machinery hire</option><option>Other</option></select>
 </label>
 <div class="row2 rice-only">
 <label>Bag size <select name="product"></select></label>
 <label>How many bags? <input inputmode="numeric" maxlength="60" name="quantity" placeholder="e.g. 4"/></label>
+</div>
+<div class="row2 hire-only" hidden="">
+<label>Machine <select name="machine"></select></label>
+<label>For how long? <input maxlength="60" name="hire_for" placeholder="e.g. 3 days"/></label>
 </div>
 <div class="row2">
 <label>Your name <input autocomplete="name" maxlength="120" name="name" required=""/></label>

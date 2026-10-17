@@ -2,7 +2,7 @@
 
 Company website and CMS. Static HTML/CSS/JS backed by Supabase.
 
-**Website**: Home, About, Services, Pishori Rice, Projects, News and Contact, with the order / quote form and a WhatsApp button. Live at https://aol529.github.io/kanam-logistics/.
+**Website**: Home, About, Services (including machinery hire), Pishori Rice, Projects, News and Contact, with the order / quote form and a WhatsApp button. Live at https://aol529.github.io/kanam-logistics/.
 
 **Kanam CMS** (`/portal/`): staff sign in and manage the whole site.
 
@@ -14,6 +14,7 @@ Company website and CMS. Static HTML/CSS/JS backed by Supabase.
 | Pages | Every headline, paragraph, list item and button on every page, plus each page's Google title and description |
 | News | Posts with cover photo, simple formatting, draft / published / scheduled |
 | Media library | Upload photos once, reuse them anywhere; alt text and captions |
+| Machinery hire | Grader, excavator and other machines on the Services page: hire rate (per hour / day / week), terms, status (available, on hire, coming soon), photo |
 | Products, Projects | Rice bags and prices, stock; road works, supplies and rice projects |
 | Testimonials, FAQs, Team | Shown on Home, Contact and About (testimonials and team stay hidden until there is one) |
 | Company details | Phone, WhatsApp, email, KRA PIN, registration, About text... used across the site |
@@ -30,7 +31,7 @@ Anything in `[square brackets]` is a placeholder and shows **highlighted in yell
 ## Setup
 
 1. Create a Supabase project and put its URL and publishable key in `js/config.js`.
-2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`, then `sql/03-profile.sql`, then `sql/04-ledger.sql`.
+2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`, then `sql/03-profile.sql`, then `sql/04-ledger.sql`, then `sql/05-equipment.sql`.
 3. Authentication → Users → **Add user** (your email and a password, tick Auto Confirm). Then in the SQL editor:
    `insert into public.staff (user_id, email, name, role) select id, email, 'Your name', 'admin' from auth.users where email = 'you@example.com';`
    (Later staff are added from the portal's Staff page.)
