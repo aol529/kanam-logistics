@@ -2,7 +2,7 @@
    Sign in, then the sections your role allows (see sql/02-cms.sql):
      admin  : everything, including Staff and Activity
      editor : Pages, News, Media, Products, Projects, Testimonials, FAQs, Team, Settings
-     sales  : Inquiries, Rice ledger, Products, Media
+     sales  : Inquiries, Rice ledger, Road works ledger, Products, Media
    Products, projects, news, testimonials, FAQs and team share one editor,
    described by RESOURCES below. Photos live in the media library (table
    "media", storage bucket "site"). Tender documents (Company profile) are
@@ -101,6 +101,7 @@
     { id: 'dashboard', label: 'Dashboard', roles: ['admin', 'editor', 'sales'] },
     { id: 'inquiries', label: 'Inquiries', roles: ['admin', 'sales'] },
     { id: 'ledger', label: 'Rice ledger', roles: ['admin', 'sales'] },
+    { id: 'roads', label: 'Road works ledger', roles: ['admin', 'sales'] },
     { id: 'pages', label: 'Pages', roles: ['admin', 'editor'], group: 'Website' },
     { id: 'posts', label: 'News', roles: ['admin', 'editor'] },
     { id: 'media', label: 'Media library', roles: ['admin', 'editor', 'sales'] },
@@ -500,14 +501,15 @@
   /* ---------------- Dashboard ---------------- */
   VIEWS.dashboard = async main => {
     const can = id => allowed(TABS.find(t => t.id === id));
-    const [inq, posts, settings, products, activity, profile, rice] = await Promise.all([
+    const [inq, posts, settings, products, activity, profile, rice, road] = await Promise.all([
       can('inquiries') ? db.from('inquiries').select('id,status,name,kind,created_at').order('created_at', { ascending: false }).limit(200) : { data: null },
       can('posts') ? db.from('posts').select('id,status,title') : { data: null },
       db.from('settings').select('key,value'),
       db.from('products').select('id,in_stock,published'),
       can('activity') ? db.from('activity').select('*').order('at', { ascending: false }).limit(6) : { data: null },
       can('profile') ? profileStatus() : null,
-      can('ledger') ? ledgerStatus() : null
+      can('ledger') ? ledgerStatus() : null,
+      can('roads') ? roadStatus() : null
     ]);
     const saved = {};
     (settings.data || []).forEach(r => { saved[r.key] = r.value; });
@@ -519,6 +521,7 @@
       <div class="stat-cards">
         ${inq.data ? card(fresh.length, 'New inquiries', 'inquiries', fresh.length ? 'hot' : '') : ''}
         ${rice ? card(rice.c.profit >= 0 ? kes(rice.c.profit) : kes(rice.c.recover), `${rice.c.profit >= 0 ? 'Rice profit so far' : 'Rice: still to recover'} · ${esc(rice.b.name.replace(/\s*\(.*\)$/, ''))}`, 'ledger', rice.c.profit >= 0 ? '' : 'warn') : ''}
+        ${road ? card(kes(road.c.contract ? road.c.expProfit : road.c.spent), `${road.c.contract ? 'Road works: expected profit' : 'Road works: spent so far'} · ${esc(road.p.name)}`, 'roads', road.c.contract && road.c.expProfit < 0 ? 'warn' : '') : ''}
         ${card((products.data || []).filter(p => p.published && p.in_stock).length + ' / ' + (products.data || []).length, 'Products in stock', 'products')}
         ${posts.data ? card(posts.data.filter(p => p.status === 'published').length, 'News published', 'posts') : ''}
         ${posts.data ? card(posts.data.filter(p => p.status === 'draft').length, 'News drafts', 'posts') : ''}
@@ -1088,6 +1091,510 @@
       size_kg: size, bags, paid: false, notes: 'From website order' + (i.message ? ': ' + i.message.slice(0, 120) : '') }]);
     if (e2){ toast('Not added: ' + e2.message); return; }
     toast(`Added to ${b.name}. Check the price and tick Paid when you're paid.`);
+  }
+
+  /* ---------------- Road works ledger (projects and their daily costs) ---------------- */
+  // A project is one road / contract. Every cost is a line in the daily log
+  // (quantity × price). "Add a work day", "Add a murram day" and "Add bush
+  // clearing" put in the project's standard lines, so only what's different
+  // that day needs changing. Payments from the client lose withholding tax.
+  const ROAD_CATS = ['Probox', 'Crew', 'Grader fuel', 'Grader upkeep', 'Security', 'Bush clearing', 'Murram pit', 'Lorries', 'Lorry fuel', 'Excavator', 'Excavator fuel', 'Other'];
+  const ROAD_DAYS = [['day', 'Work day'], ['murram', 'Murram day'], ['clearing', 'Bush clearing']];
+  const ROAD_TEMPLATES = {
+    day: [
+      { category: 'Probox', item: 'Fuel – Probox KCL 106K', unit: 'litres', qty: '', price: '', fuel: 'petrol' },
+      { category: 'Crew', item: 'Operator allowance', unit: '', qty: 1, price: 5000, fuel: '' },
+      { category: 'Crew', item: 'Turn boy allowance', unit: '', qty: 1, price: 5000, fuel: '' },
+      { category: 'Crew', item: 'Coordinator allowance', unit: '', qty: 1, price: 2000, fuel: '' },
+      { category: 'Crew', item: 'Driver / site boss allowance', unit: '', qty: 1, price: 2000, fuel: '' },
+      { category: 'Crew', item: 'Guest allowance (set to 1 when someone comes)', unit: '', qty: 0, price: 2000, fuel: '' },
+      { category: 'Crew', item: 'Lunch for the crew', unit: '', qty: 1, price: 1000, fuel: '' },
+      { category: 'Grader fuel', item: 'Diesel for the grader (jerricans)', unit: 'litres', qty: '', price: '', fuel: 'diesel' },
+      { category: 'Security', item: 'Night security for the grader', unit: '', qty: 1, price: '', fuel: '' }
+    ],
+    murram: [
+      { category: 'Murram pit', item: 'Murram', unit: 'trips', qty: '', price: '', fuel: '' },
+      { category: 'Lorries', item: 'Lorry hire', unit: 'lorries', qty: 10, price: '', fuel: '' },
+      { category: 'Lorries', item: 'Lunch for lorry drivers and turn boys', unit: 'people', qty: 20, price: 100, fuel: '' },
+      { category: 'Lorries', item: 'Extra lunch for the lead driver', unit: '', qty: 1, price: 100, fuel: '' },
+      { category: 'Lorry fuel', item: 'Diesel for the lorries (all lorries)', unit: 'litres', qty: '', price: '', fuel: 'diesel' },
+      { category: 'Excavator', item: 'Excavator hire', unit: 'hours', qty: '', price: '', fuel: '' },
+      { category: 'Excavator', item: 'Lunch for the excavator operator', unit: '', qty: 1, price: 200, fuel: '' },
+      { category: 'Excavator fuel', item: 'Diesel for the excavator', unit: 'litres', qty: '', price: '', fuel: 'diesel' }
+    ],
+    clearing: [
+      { category: 'Bush clearing', item: 'Workers clearing bushes / waterways', unit: 'people', qty: '', price: '', fuel: '' }
+    ]
+  };
+  const roadTemplates = p => {
+    const t = p.templates || {}, o = {};
+    ROAD_DAYS.forEach(([k]) => { o[k] = Array.isArray(t[k]) ? t[k] : ROAD_TEMPLATES[k]; });
+    return o;
+  };
+  const numOrNull = v => v == null || String(v).trim() === '' ? null : num(v);
+  const fuelPrice = (p, fuel) => fuel === 'diesel' ? num(p.diesel_price) : fuel === 'petrol' ? num(p.petrol_price) : 0;
+  const longDay = iso => iso ? new Date(iso + 'T00:00').toLocaleDateString('en-KE', { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }) : 'No date';
+
+  function roadCalc(p, costs){
+    const c = { byCat: {}, byDay: {} };
+    costs = costs || [];
+    c.rows = costs.map(r => num(r.qty) * num(r.price));
+    c.spent = c.rows.reduce((t, a) => t + a, 0);
+    costs.forEach((r, i) => {
+      c.byCat[r.category] = (c.byCat[r.category] || 0) + c.rows[i];
+      c.byDay[r.spent_on] = (c.byDay[r.spent_on] || 0) + c.rows[i];
+    });
+    c.days = Object.keys(c.byDay).length;
+    c.trips = costs.filter(r => r.category === 'Murram pit').reduce((t, r) => t + num(r.qty), 0);
+    c.pays = (p.payments || []).map(x => {
+      const gross = num(x.gross), rate = x.rate == null || x.rate === '' ? num(p.wht_rate) : num(x.rate), wht = gross * rate / 100;
+      return { gross, rate, wht, net: gross - wht };
+    });
+    c.gross = c.pays.reduce((t, x) => t + x.gross, 0);
+    c.wht = c.pays.reduce((t, x) => t + x.wht, 0);
+    c.net = c.gross - c.wht;
+    c.contract = num(p.contract_amount);
+    c.contractWht = c.contract * num(p.wht_rate) / 100;
+    c.contractNet = c.contract - c.contractWht;
+    c.owed = Math.max(0, c.contract - c.gross);
+    c.expProfit = c.contractNet - c.spent;
+    c.cash = c.net - c.spent;
+    c.status = !c.contract ? 'Enter the contract amount under Project' : c.expProfit < 0 ? 'Costs are more than the contract pays'
+      : c.owed ? 'Waiting for payment' : 'Paid in full';
+    return c;
+  }
+
+  // For the dashboard: the newest active project.
+  async function roadStatus(){
+    try {
+      const { data: p, error } = await db.from('road_projects').select('*').eq('status', 'active').order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (error || !p) return null;
+      const { data: costs } = await db.from('road_costs').select('spent_on,category,qty,price').eq('project_id', p.id);
+      return { p, c: roadCalc(p, costs || []) };
+    } catch (e){ return null; }
+  }
+
+  let R = { projects: [], project: null, costs: [], sheet: 'log', cat: '', date: '', dirty: false };
+  const sortCosts = () => R.costs.sort((a, b) => String(a.spent_on).localeCompare(String(b.spent_on)) || String(a.created_at).localeCompare(String(b.created_at)));
+  const confirmLeaveRoad = () => window.confirm('You have unsaved changes to the project. Leave without saving?');
+
+  VIEWS.roads = async main => {
+    const { data, error } = await db.from('road_projects').select('*').order('created_at', { ascending: false });
+    if (error){
+      if (!missingTable(error)) throw error;
+      main.innerHTML = `<div class="p-head"><h1>Road works ledger</h1></div>
+        <p class="empty">One more step: run <code>sql/06-roads.sql</code> in the Supabase SQL editor, then reload this page.</p>`;
+      return;
+    }
+    R.projects = data || [];
+    let want = null;
+    try { want = localStorage.getItem('kanam_road'); } catch (e) {}
+    R.project = R.projects.find(p => p.id === want) || R.projects.find(p => p.status === 'active') || R.projects[0] || null;
+    try { R.sheet = localStorage.getItem('kanam_road_sheet') || 'log'; } catch (e) {}
+    R.dirty = false;
+    main.innerHTML = `
+      <div class="p-head">
+        <h1>Road works ledger</h1>
+        <div class="p-tools">
+          <select id="rd-project" aria-label="Project">${R.projects.map(p => `<option value="${p.id}"${R.project && p.id === R.project.id ? ' selected' : ''}>${esc(p.name)}${p.status === 'closed' ? ' (closed)' : ''}</option>`).join('')}</select>
+          <button class="btn btn-sm btn-quiet" type="button" id="rd-new">New project</button>
+          <button class="btn btn-sm btn-quiet" type="button" id="rd-xlsx"${R.project ? '' : ' disabled'}>Download Excel</button>
+        </div>
+      </div>
+      <div id="rd-body"></div>`;
+    $('rd-project').onchange = () => {
+      if (R.dirty && !confirmLeaveRoad()) { $('rd-project').value = R.project.id; return; }
+      try { localStorage.setItem('kanam_road', $('rd-project').value); } catch (e) {}
+      refresh();
+    };
+    $('rd-new').onclick = newRoadProject;
+    $('rd-xlsx').onclick = downloadRoads;
+    if (!R.project){
+      $('rd-body').innerHTML = '<p class="empty">No road projects yet. Press <b>New project</b> to start one.</p>';
+      return;
+    }
+    const s = await db.from('road_costs').select('*').eq('project_id', R.project.id).order('spent_on').order('created_at');
+    if (s.error) throw s.error;
+    R.costs = s.data || [];
+    $('rd-body').innerHTML = `
+      <div class="stat-cards lg-cards" id="rd-cards"></div>
+      <div class="sheet-tabs" role="tablist">
+        ${[['log', 'Daily log'], ['summary', 'Project'], ['progress', 'Costs & money']].map(([k, t]) =>
+          `<button type="button" role="tab" data-sheet="${k}" aria-selected="${R.sheet === k}">${t}</button>`).join('')}
+      </div>
+      <div id="rd-sheet"></div>`;
+    $('rd-body').querySelectorAll('[data-sheet]').forEach(b => { b.onclick = () => {
+      if (R.dirty && !confirmLeaveRoad()) return;
+      R.sheet = b.dataset.sheet;
+      R.dirty = false;
+      try { localStorage.setItem('kanam_road_sheet', R.sheet); } catch (e) {}
+      $('rd-body').querySelectorAll('[data-sheet]').forEach(x => x.setAttribute('aria-selected', x === b));
+      drawRoadSheet();
+    }; });
+    drawRoadCards();
+    drawRoadSheet();
+  };
+
+  function drawRoadCards(c){
+    c = c || roadCalc(R.project, R.costs);
+    $('rd-cards').innerHTML = `
+      <div class="stat-card static"><b>${kes(c.spent)}</b><span>Spent so far (KES)</span></div>
+      <div class="stat-card static"><b>${kes(c.net)}</b><span>Received, after WHT</span></div>
+      <div class="stat-card static ${c.owed ? 'warn' : ''}"><b>${kes(c.owed)}</b><span>Still owed by ${esc(R.project.client || 'the client')}</span></div>
+      <div class="stat-card static ${c.contract && c.expProfit >= 0 ? 'good' : ''}"><b class="${c.contract && c.expProfit < 0 ? 'neg' : ''}">${c.contract ? kes(c.expProfit) : '–'}</b><span>Expected profit</span></div>
+      <div class="stat-card static"><b>${c.days}</b><span>Days worked${c.trips ? ` · ${kes(c.trips)} murram trips` : ''}</span></div>`;
+  }
+  function drawRoadSheet(){
+    ({ log: drawRoadLog, summary: drawRoadSummary, progress: drawRoadProgress })[R.sheet in { log: 1, summary: 1, progress: 1 } ? R.sheet : 'log']();
+  }
+  const catOpts = v => ROAD_CATS.concat(v && !ROAD_CATS.includes(v) ? [v] : []).map(k => `<option${k === v ? ' selected' : ''}>${esc(k)}</option>`).join('');
+
+  /* ----- Daily log: edit in place, each row saves itself ----- */
+  function drawRoadLog(){
+    const p = R.project;
+    const list = R.costs.filter(r => !R.cat || r.category === R.cat), c = roadCalc(p, list);
+    let lastDay = null, body = '';
+    list.forEach((r, i) => {
+      if (r.spent_on !== lastDay){
+        lastDay = r.spent_on;
+        body += `<tr class="day-row"><td colspan="6"><b>${esc(longDay(r.spent_on))}</b></td><td class="r" data-day="${esc(r.spent_on)}"><b>${kes(c.byDay[r.spent_on])}</b></td><td colspan="2"></td></tr>`;
+      }
+      body += `
+        <tr data-id="${r.id}">
+          <td><input type="date" data-f="spent_on" value="${esc(r.spent_on || '')}"></td>
+          <td><select data-f="category">${catOpts(r.category)}</select></td>
+          <td><input data-f="item" value="${esc(r.item)}" placeholder="What it was for"></td>
+          <td><input data-f="qty" inputmode="decimal" class="r" value="${r.qty == null ? '' : esc(r.qty)}"></td>
+          <td><input data-f="unit" value="${esc(r.unit)}" placeholder="litres, trips…"></td>
+          <td><input data-f="price" inputmode="decimal" class="r" value="${r.price == null ? '' : esc(r.price)}"></td>
+          <td class="r calc" data-amt>${c.rows[i] ? kes(c.rows[i]) : ''}</td>
+          <td><input data-f="notes" value="${esc(r.notes)}"></td>
+          <td><button type="button" class="btn-text danger" data-del title="Delete this line">✕</button></td>
+        </tr>`;
+    });
+    $('rd-sheet').innerHTML = `
+      <div class="p-head lg-sub">
+        <p class="muted small">Pick the day, then add its standard lines and change what's different (fill in the yellow boxes left empty). Amount = quantity × price. Each row saves itself.</p>
+        <div class="p-tools">
+          <select id="rd-cat" aria-label="Show category"><option value="">All categories</option>${ROAD_CATS.map(k => `<option${k === R.cat ? ' selected' : ''}>${k}</option>`).join('')}</select>
+        </div>
+      </div>
+      <div class="rd-add">
+        <label class="small">Day <input type="date" id="rd-date" value="${R.date || today()}"></label>
+        ${ROAD_DAYS.map(([k, t]) => `<button class="btn btn-sm btn-navy" type="button" data-add-day="${k}">Add ${t.toLowerCase()}</button>`).join('')}
+        <button class="btn btn-sm btn-quiet" type="button" id="rd-add-one">Add one cost</button>
+      </div>
+      <div class="sheet-wrap"><table class="sheet road-sheet">
+        <thead><tr><th>Date</th><th>Category</th><th>Item</th><th class="r">Qty</th><th>Unit</th><th class="r">Price</th><th class="r">Amount</th><th>Notes</th><th></th></tr></thead>
+        <tbody>${body || `<tr><td colspan="9" class="empty-row">${R.costs.length ? 'Nothing in this category.' : 'No costs yet. Pick the day and press <b>Add work day</b>.'}</td></tr>`}</tbody>
+        <tfoot><tr><td colspan="6"><b>Total${R.cat ? ' – ' + esc(R.cat) : ''}</b></td><td class="r" id="rd-t-amt"><b>${kes(c.spent)}</b></td><td colspan="2"></td></tr></tfoot>
+      </table></div>`;
+    $('rd-cat').onchange = e => { R.cat = e.target.value; drawRoadLog(); };
+    $('rd-date').onchange = e => { R.date = e.target.value; };
+    $('rd-sheet').querySelectorAll('[data-add-day]').forEach(b => { b.onclick = () => addRoadLines(b.dataset.addDay); });
+    $('rd-add-one').onclick = () => addRoadLines(null);
+    $('rd-sheet').querySelectorAll('tr[data-id]').forEach(tr => {
+      const r = R.costs.find(x => x.id === tr.dataset.id);
+      let timer;
+      const value = el => ['qty', 'price'].includes(el.dataset.f) ? numOrNull(el.value) : el.value.trim();
+      const save = async () => {
+        const patch = {};
+        tr.querySelectorAll('[data-f]').forEach(el => {
+          let v = value(el);
+          if (el.dataset.f === 'spent_on' && !v) v = today();
+          if (JSON.stringify(v) !== JSON.stringify(r[el.dataset.f])) patch[el.dataset.f] = v;
+        });
+        if (!Object.keys(patch).length) return;
+        patch.updated_at = new Date().toISOString();
+        tr.classList.add('saving');
+        const { error } = await db.from('road_costs').update(patch).eq('id', r.id);
+        tr.classList.remove('saving');
+        if (error){ tr.classList.add('save-err'); toast('Not saved: ' + error.message); return; }
+        tr.classList.remove('save-err');
+        Object.assign(r, patch);
+        // A line moved to another day or category: put it in its place.
+        if ('spent_on' in patch || ('category' in patch && R.cat)){ sortCosts(); drawRoadLog(); }
+      };
+      const recalc = () => {
+        // Update this row's amount, the day and the totals as you type, before saving.
+        const tmp = Object.assign({}, r);
+        tr.querySelectorAll('[data-f]').forEach(el => { tmp[el.dataset.f] = value(el); });
+        tmp.spent_on = r.spent_on;
+        const all = R.costs.map(x => x === r ? tmp : x), cc = roadCalc(R.project, all.filter(x => !R.cat || x.category === R.cat));
+        const amt = num(tmp.qty) * num(tmp.price);
+        tr.querySelector('[data-amt]').textContent = amt ? kes(amt) : '';
+        $('rd-sheet').querySelectorAll('[data-day]').forEach(td => { td.innerHTML = `<b>${kes(cc.byDay[td.dataset.day])}</b>`; });
+        $('rd-t-amt').innerHTML = `<b>${kes(cc.spent)}</b>`;
+        drawRoadCards(roadCalc(R.project, all));
+      };
+      tr.querySelectorAll('[data-f]').forEach(el => {
+        el.addEventListener('input', () => { recalc(); clearTimeout(timer); timer = setTimeout(save, 700); });
+        el.addEventListener('change', () => { recalc(); clearTimeout(timer); save(); });
+      });
+      tr.querySelector('[data-del]').onclick = async e => {
+        const btn = e.currentTarget;
+        if (!btn.classList.contains('armed')){ btn.classList.add('armed'); btn.textContent = 'Delete?'; setTimeout(() => { btn.classList.remove('armed'); btn.textContent = '✕'; }, 3500); return; }
+        const { error } = await db.from('road_costs').delete().eq('id', r.id);
+        if (error){ toast(error.message); return; }
+        R.costs = R.costs.filter(x => x !== r);
+        drawRoadLog(); drawRoadCards();
+        toast('Line deleted');
+      };
+    });
+  }
+
+  async function addRoadLines(kind){
+    const p = R.project, on = ($('rd-date') && $('rd-date').value) || today();
+    const lines = kind ? roadTemplates(p)[kind] : [{ category: R.cat || 'Other', item: '', unit: '', qty: '', price: '', fuel: '' }];
+    if (!lines.length){ toast('This standard day has no lines. Add them under Project.'); return; }
+    const rows = lines.map(t => ({ project_id: p.id, spent_on: on, category: t.category || 'Other', item: t.item || '', unit: t.unit || '',
+      qty: numOrNull(t.qty), price: t.fuel ? (fuelPrice(p, t.fuel) || null) : numOrNull(t.price), notes: '' }));
+    const { data, error } = await db.from('road_costs').insert(rows).select();
+    if (error){ toast('Not added: ' + error.message); return; }
+    R.costs.push(...data);
+    sortCosts();
+    if (R.cat && data.some(r => r.category !== R.cat)) R.cat = '';
+    drawRoadLog(); drawRoadCards();
+    // Go to the first new line that still needs a number.
+    const first = data.find(r => r.qty == null || r.price == null) || data[0];
+    const tr = $('rd-sheet').querySelector(`tr[data-id="${first.id}"]`);
+    if (tr){ tr.scrollIntoView({ block: 'center' }); tr.querySelector(first.qty == null ? '[data-f=qty]' : first.price == null ? '[data-f=price]' : '[data-f=item]').focus(); }
+    const missingFuel = lines.some(t => t.fuel && !fuelPrice(p, t.fuel));
+    toast(kind ? `${data.length} lines added for ${longDay(on)}${missingFuel ? '. Tip: set fuel prices under Project' : ''}` : 'Line added');
+  }
+
+  /* ----- Project: contract, payments, fuel prices and the standard days ----- */
+  function drawRoadSummary(){
+    const p = JSON.parse(JSON.stringify(R.project));
+    p.templates = JSON.parse(JSON.stringify(roadTemplates(R.project)));
+    p.payments = p.payments || [];
+    const payRow = (x, i) => `<tr data-i="${i}">
+        <td><input type="date" data-p="date" value="${esc(x.date || '')}" aria-label="Date paid"></td>
+        <td><input data-p="label" value="${esc(x.label)}" placeholder="e.g. Certificate 1" aria-label="What it was"></td>
+        <td><input data-p="gross" class="r" inputmode="decimal" value="${esc(x.gross)}" aria-label="Amount before WHT"></td>
+        <td><input data-p="rate" class="r" inputmode="decimal" value="${esc(x.rate)}" aria-label="WHT %"></td>
+        <td class="r calc" data-o="pw${i}"></td><td class="r calc" data-o="pn${i}"></td>
+        <td><button type="button" class="btn-text danger" data-rm-pay title="Remove">✕</button></td></tr>`;
+    const tRow = (kind, t, i) => `<tr data-kind="${kind}" data-i="${i}">
+        <td><select data-t="category" aria-label="Category">${catOpts(t.category)}</select></td>
+        <td><input data-t="item" value="${esc(t.item)}" placeholder="What it is for" aria-label="Item"></td>
+        <td><input data-t="qty" class="r" inputmode="decimal" value="${esc(t.qty)}" aria-label="Quantity"></td>
+        <td><input data-t="unit" value="${esc(t.unit)}" placeholder="litres…" aria-label="Unit"></td>
+        <td><select data-t="fuel" aria-label="Price"><option value="">Fixed price</option><option value="diesel"${t.fuel === 'diesel' ? ' selected' : ''}>Diesel price</option><option value="petrol"${t.fuel === 'petrol' ? ' selected' : ''}>Petrol price</option></select></td>
+        <td><input data-t="price" class="r" inputmode="decimal" value="${t.fuel ? '' : esc(t.price)}"${t.fuel ? ' disabled' : ''} aria-label="Price"></td>
+        <td><button type="button" class="btn-text danger" data-rm-t title="Remove">✕</button></td></tr>`;
+    $('rd-sheet').innerHTML = `
+      <form id="rd-form" class="lg-summary">
+        <section class="panel-box lg-box">
+          <h2>Project</h2>
+          <div class="fields">
+            <label class="full">Name <input name="name" value="${esc(p.name)}" required placeholder="e.g. Kanyamedha–Ombeyi road"></label>
+            <label class="half">Client <input name="client" value="${esc(p.client)}"></label>
+            <label class="half">Started on <input type="date" name="started_on" value="${esc(p.started_on || '')}"></label>
+            <label class="half">Status <select name="status"><option value="active"${p.status === 'active' ? ' selected' : ''}>Active</option><option value="closed"${p.status === 'closed' ? ' selected' : ''}>Closed (finished and paid)</option></select></label>
+            <label class="full">Notes <textarea name="notes" rows="2">${esc(p.notes)}</textarea></label>
+          </div>
+        </section>
+        <section class="panel-box lg-box">
+          <h2>Contract</h2>
+          <div class="kv"><label>Contract amount <input name="contract_amount" class="r" inputmode="decimal" value="${esc(p.contract_amount)}"></label>
+            <label>Withholding tax (%) <input name="wht_rate" class="r" inputmode="decimal" value="${esc(p.wht_rate)}"></label></div>
+          <div class="kv-out"><span>Withholding tax on the whole contract</span><b data-o="contractWht"></b></div>
+          <div class="kv-out total"><span>You will receive</span><b data-o="contractNet"></b></div>
+          <p class="muted small">Withholding tax is held back by the client and paid to KRA for you; keep the WHT certificates, they count against the company's income tax.</p>
+          <h2>Fuel prices (per litre)</h2>
+          <div class="kv"><label>Diesel (grader, lorries, excavator) <input name="diesel_price" class="r" inputmode="decimal" value="${esc(p.diesel_price)}"></label>
+            <label>Petrol (Probox) <input name="petrol_price" class="r" inputmode="decimal" value="${esc(p.petrol_price)}"></label></div>
+          <p class="muted small">Used for fuel lines added from now on. Lines already in the log keep their price.</p>
+        </section>
+        <section class="panel-box lg-box wide">
+          <h2>Payments from the client</h2>
+          <div class="sheet-wrap"><table class="sheet mini"><thead><tr><th>Date</th><th>What</th><th class="r">Amount (before WHT)</th><th class="r">WHT %</th><th class="r">WHT</th><th class="r">Received</th><th></th></tr></thead>
+            <tbody id="rd-pays"></tbody>
+            <tfoot><tr><td colspan="2"><b>Total</b></td><td class="r" data-o="gross"></td><td></td><td class="r" data-o="wht"></td><td class="r" data-o="net"></td><td></td></tr>
+              <tr><td colspan="5"><b>Still owed (contract − paid before WHT)</b></td><td class="r" data-o="owed"></td><td></td></tr></tfoot></table></div>
+          <button type="button" class="btn-text" id="rd-add-pay">+ Add a payment</button>
+        </section>
+        ${ROAD_DAYS.map(([k, t]) => `
+        <section class="panel-box lg-box wide">
+          <h2>Standard ${t.toLowerCase()}</h2>
+          <p class="muted small">What <b>Add ${t.toLowerCase()}</b> puts in the daily log. Leave a quantity or price empty to fill it in on the day.</p>
+          <div class="sheet-wrap"><table class="sheet mini tpl-sheet"><thead><tr><th>Category</th><th>Item</th><th class="r">Qty</th><th>Unit</th><th>Price from</th><th class="r">Price</th><th></th></tr></thead>
+            <tbody id="rd-t-${k}"></tbody>
+            <tfoot><tr><td colspan="5"><b>One ${t.toLowerCase()} (lines filled in)</b></td><td class="r" data-o="tpl-${k}"></td><td></td></tr></tfoot></table></div>
+          <button type="button" class="btn-text" data-add-t="${k}">+ Add a line</button>
+        </section>`).join('')}
+        <div class="lg-save">
+          <button type="button" class="btn-text danger" id="rd-del">Delete project</button>
+          <span class="spacer"></span>
+          <span class="muted small" id="rd-dirty"></span>
+          <button type="submit" class="btn btn-sm btn-navy">Save project</button>
+        </div>
+      </form>`;
+    const f = $('rd-form');
+    const read = () => {
+      p.name = f.name.value.trim(); p.client = f.client.value.trim(); p.started_on = f.started_on.value || null; p.status = f.status.value; p.notes = f.notes.value.trim();
+      p.contract_amount = num(f.contract_amount.value); p.wht_rate = num(f.wht_rate.value);
+      p.diesel_price = num(f.diesel_price.value); p.petrol_price = num(f.petrol_price.value);
+      p.payments = [...f.querySelectorAll('#rd-pays tr')].map(tr => {
+        const g = k => tr.querySelector(`[data-p="${k}"]`).value.trim();
+        return { date: g('date') || null, label: g('label'), gross: num(g('gross')), rate: g('rate') === '' ? p.wht_rate : num(g('rate')) };
+      });
+      ROAD_DAYS.forEach(([k]) => {
+        p.templates[k] = [...f.querySelectorAll(`#rd-t-${k} tr`)].map(tr => {
+          const g = n => tr.querySelector(`[data-t="${n}"]`).value.trim();
+          const fuel = g('fuel'), qty = numOrNull(g('qty')), price = numOrNull(g('price'));
+          return { category: g('category'), item: g('item'), unit: g('unit'), qty: qty == null ? '' : qty, price: fuel || price == null ? '' : price, fuel };
+        });
+      });
+    };
+    const out = () => {
+      const c = roadCalc(p, R.costs);
+      const set = (k, v) => f.querySelectorAll(`[data-o="${k}"]`).forEach(el => { el.textContent = v; });
+      set('contractWht', kes(c.contractWht)); set('contractNet', kes(c.contractNet));
+      c.pays.forEach((x, i) => { set('pw' + i, kes(x.wht)); set('pn' + i, kes(x.net)); });
+      set('gross', kes(c.gross)); set('wht', kes(c.wht)); set('net', kes(c.net)); set('owed', kes(c.owed));
+      ROAD_DAYS.forEach(([k]) => set('tpl-' + k, kes(p.templates[k].reduce((t, x) => t + num(x.qty) * (x.fuel ? fuelPrice(p, x.fuel) : num(x.price)), 0))));
+    };
+    const render = () => {
+      $('rd-pays').innerHTML = p.payments.map(payRow).join('') || '<tr><td colspan="7" class="empty-row">No payments yet.</td></tr>';
+      ROAD_DAYS.forEach(([k]) => { $('rd-t-' + k).innerHTML = p.templates[k].map((t, i) => tRow(k, t, i)).join(''); });
+      wire(); out();
+    };
+    const changed = () => { read(); out(); R.dirty = true; $('rd-dirty').textContent = 'Unsaved changes'; };
+    const wire = () => {
+      f.querySelectorAll('input,select,textarea').forEach(el => { el.oninput = changed; });
+      f.querySelectorAll('[data-t="fuel"]').forEach(sel => { sel.onchange = () => {
+        const price = sel.closest('tr').querySelector('[data-t="price"]');
+        price.disabled = !!sel.value; if (sel.value) price.value = '';
+        changed();
+      }; });
+      f.querySelectorAll('[data-rm-pay]').forEach(btn => { btn.onclick = () => { read(); p.payments.splice(+btn.closest('tr').dataset.i, 1); render(); changed(); }; });
+      f.querySelectorAll('[data-rm-t]').forEach(btn => { btn.onclick = () => {
+        const tr = btn.closest('tr'); read(); p.templates[tr.dataset.kind].splice(+tr.dataset.i, 1); render(); changed();
+      }; });
+    };
+    $('rd-add-pay').onclick = () => {
+      read(); p.payments.push({ date: today(), label: '', gross: '', rate: p.wht_rate }); render(); changed();
+      $('rd-pays').lastElementChild.querySelector('[data-p=label]').focus();
+    };
+    f.querySelectorAll('[data-add-t]').forEach(btn => { btn.onclick = () => {
+      const k = btn.dataset.addT;
+      read(); p.templates[k].push({ category: k === 'murram' ? 'Lorries' : k === 'clearing' ? 'Bush clearing' : 'Other', item: '', unit: '', qty: '', price: '', fuel: '' }); render(); changed();
+      $('rd-t-' + k).lastElementChild.querySelector('[data-t=item]').focus();
+    }; });
+    f.onsubmit = async e => {
+      e.preventDefault();
+      read();
+      if (!p.name){ toast('Give the project a name'); return; }
+      const patch = { name: p.name, client: p.client, started_on: p.started_on, status: p.status, notes: p.notes, contract_amount: p.contract_amount,
+        wht_rate: p.wht_rate, payments: p.payments.filter(x => x.label || x.gross), diesel_price: p.diesel_price, petrol_price: p.petrol_price,
+        templates: p.templates, updated_at: new Date().toISOString() };
+      ROAD_DAYS.forEach(([k]) => { patch.templates[k] = p.templates[k].filter(t => t.item || t.qty !== '' || t.price !== ''); });
+      const { error } = await db.from('road_projects').update(patch).eq('id', R.project.id);
+      if (error){ toast('Not saved: ' + error.message); return; }
+      R.dirty = false;
+      toast('Project saved');
+      refresh();
+    };
+    $('rd-del').onclick = async () => {
+      const btn = $('rd-del');
+      if (!armed(btn)) return;
+      const { error } = await db.from('road_projects').delete().eq('id', R.project.id);
+      if (error){ toast(error.message); return; }
+      try { localStorage.removeItem('kanam_road'); } catch (e) {}
+      R.dirty = false;
+      toast('Project deleted');
+      refresh();
+    };
+    render();
+    R.dirty = false;
+  }
+
+  /* ----- Costs & money ----- */
+  function drawRoadProgress(){
+    const p = R.project, c = roadCalc(p, R.costs);
+    const cats = ROAD_CATS.concat(Object.keys(c.byCat).filter(k => !ROAD_CATS.includes(k))).filter(k => c.byCat[k]);
+    const pct = v => c.spent ? Math.round(v / c.spent * 100) + '%' : '';
+    $('rd-sheet').innerHTML = `
+      <div class="lg-summary">
+        <section class="panel-box lg-box wide">
+          <h2>Costs by category</h2>
+          <div class="sheet-wrap"><table class="sheet mini"><thead><tr><th>Category</th><th class="r">Amount</th><th class="r">Share</th></tr></thead>
+            <tbody>${cats.map(k => `<tr><td>${esc(k)}</td><td class="r">${kes(c.byCat[k])}</td><td class="r">${pct(c.byCat[k])}</td></tr>`).join('') || '<tr><td colspan="3" class="empty-row">No costs yet.</td></tr>'}</tbody>
+            <tfoot><tr><td><b>Total spent</b></td><td class="r"><b>${kes(c.spent)}</b></td><td></td></tr></tfoot></table></div>
+        </section>
+        <section class="panel-box lg-box">
+          <h2>Against the contract</h2>
+          <div class="kv-out"><span>Contract amount</span><b>${kes(c.contract)}</b></div>
+          <div class="kv-out"><span>Withholding tax (${num(p.wht_rate)}%)</span><b>${kes(c.contractWht)}</b></div>
+          <div class="kv-out"><span>You will receive</span><b>${kes(c.contractNet)}</b></div>
+          <div class="kv-out"><span>Spent so far</span><b>${kes(c.spent)}</b></div>
+          <div class="kv-out total"><span>Expected profit</span><b class="${c.expProfit < 0 ? 'neg' : 'pos'}">${kes(c.expProfit)}</b></div>
+          <p class="lg-status-line">${esc(c.status)}</p>
+        </section>
+        <section class="panel-box lg-box">
+          <h2>Money in</h2>
+          <div class="kv-out"><span>Paid by the client (before WHT)</span><b>${kes(c.gross)}</b></div>
+          <div class="kv-out"><span>Withholding tax held back</span><b>${kes(c.wht)}</b></div>
+          <div class="kv-out"><span>Received</span><b>${kes(c.net)}</b></div>
+          <div class="kv-out"><span>Still owed</span><b>${kes(c.owed)}</b></div>
+          <div class="kv-out total"><span>Cash so far (received − spent)</span><b class="${c.cash < 0 ? 'neg' : 'pos'}">${kes(c.cash)}</b></div>
+        </section>
+        <section class="panel-box lg-box">
+          <h2>Other figures</h2>
+          <div class="kv-out"><span>Days worked</span><b>${c.days}</b></div>
+          <div class="kv-out"><span>Average cost per day</span><b>${c.days ? kes(c.spent / c.days) : '–'}</b></div>
+          <div class="kv-out"><span>Murram trips</span><b>${kes(c.trips)}</b></div>
+          <div class="kv-out"><span>Fuel bought (litres)</span><b>${kes(R.costs.filter(r => /fuel/i.test(r.category) || /litre/i.test(r.unit)).reduce((t, r) => t + num(r.qty), 0))}</b></div>
+          <div class="kv-out"><span>Lines in the log</span><b>${R.costs.length}</b></div>
+        </section>
+      </div>`;
+  }
+
+  async function newRoadProject(){
+    if (R.dirty && !confirmLeaveRoad()) return;
+    const from = R.project;
+    const row = { name: `Road project ${R.projects.length + 1}`, started_on: today() };
+    if (from) Object.assign(row, { client: from.client, wht_rate: from.wht_rate, diesel_price: from.diesel_price, petrol_price: from.petrol_price, templates: from.templates });
+    const { data, error } = await db.from('road_projects').insert([row]).select().single();
+    if (error){ toast('Not created: ' + error.message); return; }
+    try { localStorage.setItem('kanam_road', data.id); localStorage.setItem('kanam_road_sheet', 'summary'); } catch (e) {}
+    toast(from ? `${data.name} created with the same rates and standard days as ${from.name}. Name it and enter the contract.` : 'Project created. Name it and enter the contract.');
+    refresh();
+  }
+
+  // The project as an Excel workbook (values): summary, daily log, costs by category.
+  async function downloadRoads(){
+    try {
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+      const p = R.project, c = roadCalc(p, R.costs);
+      const cats = Object.keys(c.byCat).sort((a, b) => ROAD_CATS.indexOf(a) - ROAD_CATS.indexOf(b));
+      const S = [[`Road Works Ledger – ${p.name}`], ['All amounts in KES. Downloaded from the Kanam portal ' + day(new Date())], [],
+        ['Client', p.client], ['Started on', p.started_on || ''], ['Status', p.status], [],
+        ['Contract'], ['Contract amount', c.contract], [`Withholding tax (${num(p.wht_rate)}%)`, c.contractWht], ['You will receive', c.contractNet], [],
+        ['Payments from the client'], ['Date', 'What', 'Before WHT', 'WHT %', 'WHT', 'Received'],
+        ...(p.payments || []).map((x, i) => [x.date || '', x.label, c.pays[i].gross, c.pays[i].rate, c.pays[i].wht, c.pays[i].net]),
+        ['Total', '', c.gross, '', c.wht, c.net], ['Still owed', '', c.owed], [],
+        ['Costs by category', 'Amount'], ...cats.map(k => [k, c.byCat[k]]), ['TOTAL SPENT', c.spent], [],
+        ['Expected profit (contract after WHT − spent)', c.expProfit], ['Cash so far (received − spent)', c.cash],
+        ['Days worked', c.days], ['Murram trips', c.trips], ['Status', c.status]];
+      const G = [['Date', 'Category', 'Item', 'Qty', 'Unit', 'Price', 'Amount (KES)', 'Notes'],
+        ...R.costs.map((r, i) => [r.spent_on, r.category, r.item, r.qty, r.unit, r.price, c.rows[i], r.notes]),
+        [], ['Total', '', '', '', '', '', c.spent]];
+      const days = Object.keys(c.byDay).sort();
+      const T = [['Date', ...cats, 'Day total'],
+        ...days.map(d => [d, ...cats.map(k => R.costs.reduce((t, r, i) => t + (r.spent_on === d && r.category === k ? c.rows[i] : 0), 0)), c.byDay[d]]),
+        ['Total', ...cats.map(k => c.byCat[k]), c.spent]];
+      const wb = XLSX.utils.book_new();
+      const ws1 = XLSX.utils.aoa_to_sheet(S); ws1['!cols'] = [{ wch: 44 }, { wch: 22 }, { wch: 14 }, { wch: 8 }, { wch: 12 }, { wch: 14 }];
+      const ws2 = XLSX.utils.aoa_to_sheet(G); ws2['!cols'] = [{ wch: 12 }, { wch: 15 }, { wch: 40 }, { wch: 8 }, { wch: 10 }, { wch: 10 }, { wch: 14 }, { wch: 30 }];
+      const ws3 = XLSX.utils.aoa_to_sheet(T); ws3['!cols'] = [{ wch: 12 }, ...cats.map(() => ({ wch: 13 })), { wch: 13 }];
+      XLSX.utils.book_append_sheet(wb, ws1, 'Summary');
+      XLSX.utils.book_append_sheet(wb, ws2, 'Daily Log');
+      XLSX.utils.book_append_sheet(wb, ws3, 'By Day and Category');
+      XLSX.writeFile(wb, `Kanam road works - ${fileSafe(p.name)}.xlsx`);
+    } catch (err){ toast('Download failed: ' + err.message); }
   }
 
   /* ---------------- Pages (all the website's text) ---------------- */
@@ -1672,10 +2179,11 @@
   /* ---------------- Activity log ---------------- */
   const TABLE_TEXT = { content: 'page text', media: 'photo', posts: 'news post', testimonials: 'testimonial', faqs: 'FAQ', team: 'team member',
     projects: 'project', products: 'product', settings: 'company detail', staff: 'staff member', inquiries: 'inquiry',
-    company_docs: 'profile document', company_profile: 'profile item', rice_batches: 'rice batch', rice_sales: 'rice sale', equipment: 'machine' };
+    company_docs: 'profile document', company_profile: 'profile item', rice_batches: 'rice batch', rice_sales: 'rice sale', equipment: 'machine',
+    road_projects: 'road project', road_costs: 'road cost' };
   function describe(a){
     const r = a.after || a.before || {};
-    const name = r.title || r.name || r.buyer || r.question || r.key || r.email || r.path || '';
+    const name = r.title || r.name || r.buyer || r.item || r.question || r.key || r.email || r.path || '';
     const verb = { insert: 'Added', update: 'Changed', delete: 'Deleted' }[a.action] || a.action;
     return `${verb} ${TABLE_TEXT[a.table_name] || a.table_name}${name ? ` “${String(name).slice(0, 60)}”` : ''}`;
   }

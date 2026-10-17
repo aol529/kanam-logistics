@@ -270,3 +270,30 @@ code{background:var(--surface-2);padding:1px 5px;border-radius:4px;font-size:.92
 .lg-status-line{margin:8px 0 0;padding:10px 12px;border-radius:10px;background:#eef3ea;color:#2f5233;font-weight:700;}
 @media (max-width:600px){ .lg-summary{grid-template-columns:1fr;} .kv label input,.cost-line{grid-template-columns:minmax(0,1fr) 100px 30px;} }
 .cost-line .r{text-align:right;}
+
+/* Road works ledger */
+.rd-add{display:flex;flex-wrap:wrap;align-items:center;gap:8px;margin-bottom:12px;}
+.rd-add label{display:flex;align-items:center;gap:8px;font-weight:600;}
+.rd-add input[type=date]{padding:6px 8px;}
+.road-sheet{min-width:1060px;}
+.road-sheet td:nth-child(1){width:138px;}
+.road-sheet td:nth-child(2){width:140px;}
+.road-sheet td:nth-child(3){min-width:220px;}
+.road-sheet td:nth-child(4){width:70px;}
+.road-sheet td:nth-child(5){width:90px;}
+.road-sheet td:nth-child(6){width:90px;}
+.road-sheet td:nth-child(7){width:100px;}
+.road-sheet td:nth-child(8){min-width:150px;}
+.road-sheet td:last-child{width:62px;text-align:center;}
+.road-sheet tr.day-row td{background:#e6eee1 !important;color:#2f5233;padding:8px;border-top:2px solid #c9d8c1;}
+.road-sheet tr.day-row td.r{text-align:right;}
+.road-sheet tr.saving td{opacity:.6;}
+.road-sheet tr.save-err td:first-child{box-shadow:inset 3px 0 0 var(--err);}
+.tpl-sheet{min-width:760px;}
+.tpl-sheet td:nth-child(1){width:140px;}
+.tpl-sheet td:nth-child(3){width:70px;}
+.tpl-sheet td:nth-child(4){width:90px;}
+.tpl-sheet td:nth-child(5){width:120px;}
+.tpl-sheet td:nth-child(6){width:90px;}
+.tpl-sheet input:disabled{background:#f1f1f1;}
+.stat-card b.neg{color:var(--err);}
