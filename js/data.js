@@ -40,8 +40,8 @@ window.KANAM_DEFAULTS = {
   ],
   // Machinery for hire (Services page). Rates are set in the portal: empty = "Call for rates".
   equipment: [
-    { id: 'e1', name: 'Motor grader', description: 'For grading and reshaping roads, levelling sites and murram spreading.', rate: null, rate_unit: 'per hour',
-      terms: 'With operator. Fuel by client. Transport to site charged separately.', status: 'available' },
+    { id: 'e1', name: 'Motor grader', description: 'For grading and reshaping roads, levelling sites and murram spreading.', rate: 5000, rate_unit: 'per hour',
+      terms: 'Minimum deposit: 8 hours (KES 40,000), paid before the job. Operator\'s fee of KES 3,000–5,000 paid before the job starts. Fuel by client. Transport to site charged separately.', status: 'available' },
     { id: 'e2', name: 'Excavator', description: 'For digging, trenching, loading, drainage and culvert works.', rate: null, rate_unit: 'per hour',
       terms: 'With operator. Fuel by client. Transport to site charged separately.', status: 'coming_soon' }
   ],
