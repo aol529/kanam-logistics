@@ -2,7 +2,7 @@
    Sign in, then the sections your role allows (see sql/02-cms.sql):
      admin  : everything, including Staff and Activity
      editor : Pages, News, Media, Products, Projects, Testimonials, FAQs, Team, Settings
-     sales  : Inquiries, Products, Media
+     sales  : Inquiries, Rice ledger, Products, Media
    Products, projects, news, testimonials, FAQs and team share one editor,
    described by RESOURCES below. Photos live in the media library (table
    "media", storage bucket "site"). Tender documents (Company profile) are
@@ -100,6 +100,7 @@
   const TABS = [
     { id: 'dashboard', label: 'Dashboard', roles: ['admin', 'editor', 'sales'] },
     { id: 'inquiries', label: 'Inquiries', roles: ['admin', 'sales'] },
+    { id: 'ledger', label: 'Rice ledger', roles: ['admin', 'sales'] },
     { id: 'pages', label: 'Pages', roles: ['admin', 'editor'], group: 'Website' },
     { id: 'posts', label: 'News', roles: ['admin', 'editor'] },
     { id: 'media', label: 'Media library', roles: ['admin', 'editor', 'sales'] },
@@ -478,13 +479,14 @@
   /* ---------------- Dashboard ---------------- */
   VIEWS.dashboard = async main => {
     const can = id => allowed(TABS.find(t => t.id === id));
-    const [inq, posts, settings, products, activity, profile] = await Promise.all([
+    const [inq, posts, settings, products, activity, profile, rice] = await Promise.all([
       can('inquiries') ? db.from('inquiries').select('id,status,name,kind,created_at').order('created_at', { ascending: false }).limit(200) : { data: null },
       can('posts') ? db.from('posts').select('id,status,title') : { data: null },
       db.from('settings').select('key,value'),
       db.from('products').select('id,in_stock,published'),
       can('activity') ? db.from('activity').select('*').order('at', { ascending: false }).limit(6) : { data: null },
-      can('profile') ? profileStatus() : null
+      can('profile') ? profileStatus() : null,
+      can('ledger') ? ledgerStatus() : null
     ]);
     const saved = {};
     (settings.data || []).forEach(r => { saved[r.key] = r.value; });
@@ -495,6 +497,7 @@
       <div class="p-head"><h1>Hello${me.name ? ', ' + esc(me.name.split(' ')[0]) : ''}</h1><a class="btn btn-sm btn-quiet" href="../index.html" target="_blank" rel="noopener">View website ↗</a></div>
       <div class="stat-cards">
         ${inq.data ? card(fresh.length, 'New inquiries', 'inquiries', fresh.length ? 'hot' : '') : ''}
+        ${rice ? card(rice.c.profit >= 0 ? kes(rice.c.profit) : kes(rice.c.recover), `${rice.c.profit >= 0 ? 'Rice profit so far' : 'Rice: still to recover'} · ${esc(rice.b.name.replace(/\s*\(.*\)$/, ''))}`, 'ledger', rice.c.profit >= 0 ? '' : 'warn') : ''}
         ${card((products.data || []).filter(p => p.published && p.in_stock).length + ' / ' + (products.data || []).length, 'Products in stock', 'products')}
         ${posts.data ? card(posts.data.filter(p => p.status === 'published').length, 'News published', 'posts') : ''}
         ${posts.data ? card(posts.data.filter(p => p.status === 'draft').length, 'News drafts', 'posts') : ''}
@@ -587,6 +590,7 @@
     $('inq-details').innerHTML = rows.map(([k, v, html]) => `<dt>${k}</dt><dd>${html ? v : esc(v)}</dd>`).join('');
     f.status.value = i.status;
     f.notes.value = i.notes || '';
+    $('inq-ledger').hidden = !(i.kind === 'Rice order' && allowed(TABS.find(t => t.id === 'ledger')));
     $('inq-error').textContent = '';
     disarm($('inq-delete'));
     $('inq-dialog').showModal();
@@ -601,6 +605,7 @@
     drawInquiries(); refreshNewCount();
     toast('Saved');
   };
+  $('inq-ledger').onclick = () => inquiryToLedger(editingInq);
   $('inq-delete').onclick = async () => {
     if (!armed($('inq-delete'))) return;
     const { error } = await db.from('inquiries').delete().eq('id', editingInq.id);
@@ -610,6 +615,459 @@
     drawInquiries(); refreshNewCount();
     toast('Deleted');
   };
+
+  /* ---------------- Rice ledger (batches and sales) ---------------- */
+  // The same sheets as Pishori_Trading_Ledger.xlsx: 1 Purchase, 2 Costs,
+  // 3 Selling trips, 4 Pricing, the Sales log and 5 Sales progress.
+  const num = v => { const n = Number(String(v == null ? '' : v).replace(/,/g, '')); return isFinite(n) ? n : 0; };
+  const kes = n => Math.round(num(n)).toLocaleString('en-KE');
+  const kes2 = n => num(n).toLocaleString('en-KE', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const sumOf = list => (list || []).reduce((t, x) => t + num(x.amount), 0);
+  const today = () => localInput(new Date()).slice(0, 10);
+
+  function ledgerCalc(b, sales){
+    const sizes = (b.sizes || []).map(s => ({ size: num(s.size), bags: num(s.bags), price: num(s.price) }));
+    const c = { sizes };
+    c.totBags = sizes.reduce((t, s) => t + s.bags, 0);
+    c.totKg = sizes.reduce((t, s) => t + s.size * s.bags, 0);
+    c.rice = c.totKg * num(b.price_kg);
+    c.bagsCost = c.totBags * num(b.price_bag);
+    c.other = sumOf(b.costs);
+    c.tripCost = sumOf(b.trip_costs);
+    c.tripsTotal = num(b.trips) * c.tripCost;
+    c.totalCost = c.rice + c.bagsCost + c.other + c.tripsTotal;
+    c.beKg = c.totKg ? c.totalCost / c.totKg : 0;
+    c.tgKg = c.totKg ? (c.totalCost + num(b.target)) / c.totKg : 0;
+    c.expTotal = sizes.reduce((t, s) => t + s.price * s.bags, 0);
+    c.expProfit = c.expTotal - c.totalCost;
+    const priceFor = size => (sizes.find(s => s.size === num(size)) || {}).price || 0;
+    c.priceFor = priceFor;
+    c.rows = (sales || []).map(r => {
+      const p = r.price_per_bag != null && r.price_per_bag !== '' ? num(r.price_per_bag) : priceFor(r.size_kg);
+      return { kg: num(r.size_kg) * num(r.bags), amount: num(r.bags) * p };
+    });
+    c.bySize = sizes.map(s => {
+      let sold = 0, amount = 0;
+      (sales || []).forEach((r, i) => { if (num(r.size_kg) === s.size){ sold += num(r.bags); amount += c.rows[i].amount; } });
+      return { size: s.size, sold, left: s.bags - sold, amount };
+    });
+    c.sales = c.rows.reduce((t, r) => t + r.amount, 0);
+    c.soldKg = c.rows.reduce((t, r) => t + r.kg, 0);
+    c.soldBags = (sales || []).reduce((t, r) => t + num(r.bags), 0);
+    c.unpaid = (sales || []).reduce((t, r, i) => t + (r.paid ? 0 : c.rows[i].amount), 0);
+    c.recover = Math.max(0, c.totalCost - c.sales);
+    c.profit = c.sales - c.totalCost;
+    c.needed = Math.max(0, c.totalCost + num(b.target) - c.sales);
+    c.status = c.sales >= c.totalCost + num(b.target) ? 'Target reached!' : c.sales >= c.totalCost ? 'Money recovered – now in profit' : 'Still recovering costs';
+    return c;
+  }
+
+  // For the dashboard: the newest active batch.
+  async function ledgerStatus(){
+    try {
+      const { data: b, error } = await db.from('rice_batches').select('*').eq('status', 'active').order('created_at', { ascending: false }).limit(1).maybeSingle();
+      if (error || !b) return null;
+      const { data: sales } = await db.from('rice_sales').select('size_kg,bags,price_per_bag,paid').eq('batch_id', b.id);
+      return { b, c: ledgerCalc(b, sales || []) };
+    } catch (e){ return null; }
+  }
+
+  let L = { batches: [], batch: null, sales: [], sheet: 'sales', dirty: false };
+  const missingTable = err => err && /(does not exist|schema cache)/.test(err.message);
+
+  VIEWS.ledger = async main => {
+    const { data, error } = await db.from('rice_batches').select('*').order('created_at', { ascending: false });
+    if (error){
+      if (!missingTable(error)) throw error;
+      main.innerHTML = `<div class="p-head"><h1>Rice ledger</h1></div>
+        <p class="empty">One more step: run <code>sql/04-ledger.sql</code> in the Supabase SQL editor, then reload this page.</p>`;
+      return;
+    }
+    L.batches = data || [];
+    let want = null;
+    try { want = localStorage.getItem('kanam_batch'); } catch (e) {}
+    L.batch = L.batches.find(b => b.id === want) || L.batches.find(b => b.status === 'active') || L.batches[0] || null;
+    try { L.sheet = localStorage.getItem('kanam_sheet') || 'sales'; } catch (e) {}
+    L.dirty = false;
+    main.innerHTML = `
+      <div class="p-head">
+        <h1>Rice ledger</h1>
+        <div class="p-tools">
+          <select id="lg-batch" aria-label="Batch">${L.batches.map(b => `<option value="${b.id}"${L.batch && b.id === L.batch.id ? ' selected' : ''}>${esc(b.name)}${b.status === 'closed' ? ' (closed)' : ''}</option>`).join('')}</select>
+          <button class="btn btn-sm btn-quiet" type="button" id="lg-new">New batch</button>
+          <button class="btn btn-sm btn-quiet" type="button" id="lg-xlsx"${L.batch ? '' : ' disabled'}>Download Excel</button>
+        </div>
+      </div>
+      <div id="lg-body"></div>`;
+    $('lg-batch').onchange = () => {
+      if (L.dirty && !confirmLeave()) { $('lg-batch').value = L.batch.id; return; }
+      try { localStorage.setItem('kanam_batch', $('lg-batch').value); } catch (e) {}
+      refresh();
+    };
+    $('lg-new').onclick = newBatch;
+    $('lg-xlsx').onclick = downloadLedger;
+    if (!L.batch){
+      $('lg-body').innerHTML = '<p class="empty">No batches yet. Press <b>New batch</b> to start one.</p>';
+      return;
+    }
+    const s = await db.from('rice_sales').select('*').eq('batch_id', L.batch.id).order('sold_on').order('created_at');
+    if (s.error) throw s.error;
+    L.sales = s.data || [];
+    $('lg-body').innerHTML = `
+      <div class="stat-cards lg-cards" id="lg-cards"></div>
+      <div class="sheet-tabs" role="tablist">
+        ${[['sales', 'Sales log'], ['summary', 'Batch summary'], ['progress', 'Sales progress']].map(([k, t]) =>
+          `<button type="button" role="tab" data-sheet="${k}" aria-selected="${L.sheet === k}">${t}</button>`).join('')}
+      </div>
+      <div id="lg-sheet"></div>`;
+    $('lg-body').querySelectorAll('[data-sheet]').forEach(b => { b.onclick = () => {
+      if (L.dirty && !confirmLeave()) return;
+      L.sheet = b.dataset.sheet;
+      try { localStorage.setItem('kanam_sheet', L.sheet); } catch (e) {}
+      $('lg-body').querySelectorAll('[data-sheet]').forEach(x => x.setAttribute('aria-selected', x === b));
+      drawSheet();
+    }; });
+    drawCards();
+    drawSheet();
+  };
+  const confirmLeave = () => window.confirm('You have unsaved changes to the batch summary. Leave without saving?');
+
+  function drawCards(c){
+    c = c || ledgerCalc(L.batch, L.sales);
+    const tone = c.profit >= 0 ? 'good' : '';
+    $('lg-cards').innerHTML = `
+      <div class="stat-card static"><b>${kes(c.sales)}</b><span>Sales so far (KES)</span></div>
+      <div class="stat-card static ${tone}"><b>${c.profit >= 0 ? kes(c.profit) : kes(c.recover)}</b><span>${c.profit >= 0 ? 'Profit so far' : 'Still to recover'}</span></div>
+      <div class="stat-card static"><b>${kes(c.totBags - c.soldBags)} / ${kes(c.totBags)}</b><span>Bags left</span></div>
+      <div class="stat-card static ${c.unpaid ? 'warn' : ''}"><b>${kes(c.unpaid)}</b><span>Not yet paid</span></div>
+      <div class="stat-card static"><b class="lg-status">${esc(c.status)}</b><span>Target profit ${kes(L.batch.target)}</span></div>`;
+  }
+  function drawSheet(){
+    ({ sales: drawSales, summary: drawSummary, progress: drawProgress })[L.sheet in { sales: 1, summary: 1, progress: 1 } ? L.sheet : 'sales']();
+  }
+
+  /* ----- Sales log: edit in place, each row saves itself ----- */
+  function drawSales(){
+    const b = L.batch, c = ledgerCalc(b, L.sales);
+    const sizes = (b.sizes || []).map(s => num(s.size));
+    const opts = v => `<option value=""></option>` + sizes.map(s => `<option value="${s}"${num(v) === s ? ' selected' : ''}>${s} kg</option>`).join('')
+      + (v != null && v !== '' && !sizes.includes(num(v)) ? `<option value="${esc(v)}" selected>${esc(v)} kg</option>` : '');
+    $('lg-sheet').innerHTML = `
+      <div class="p-head lg-sub">
+        <p class="muted small">Type straight into the table; each row saves itself. Leave the price empty to use the batch price for that bag size.</p>
+        <div class="p-tools">
+          <label class="check small"><input type="checkbox" id="lg-unpaid"> Unpaid only</label>
+          <button class="btn btn-sm btn-navy" type="button" id="lg-add">Add sale</button>
+        </div>
+      </div>
+      <div class="sheet-wrap"><table class="sheet sales-sheet">
+        <thead><tr><th>#</th><th>Date</th><th>Buyer</th><th>Bag size</th><th class="r">Bags</th><th class="r">Price per bag</th><th class="r">Total kg</th><th class="r">Amount</th><th>Paid</th><th>Notes</th><th></th></tr></thead>
+        <tbody>${L.sales.map((r, i) => `
+          <tr data-id="${r.id}"${r.paid ? '' : ' class="unpaid"'}>
+            <td class="muted">${i + 1}</td>
+            <td><input type="date" data-f="sold_on" value="${esc(r.sold_on || '')}"></td>
+            <td><input data-f="buyer" value="${esc(r.buyer)}" placeholder="Name"></td>
+            <td><select data-f="size_kg">${opts(r.size_kg)}</select></td>
+            <td><input data-f="bags" inputmode="numeric" class="r" value="${r.bags == null ? '' : esc(r.bags)}"></td>
+            <td><input data-f="price_per_bag" inputmode="numeric" class="r" value="${r.price_per_bag == null ? '' : esc(r.price_per_bag)}" placeholder="${c.priceFor(r.size_kg) ? kes(c.priceFor(r.size_kg)) : ''}"></td>
+            <td class="r calc" data-kg>${c.rows[i].kg ? kes(c.rows[i].kg) : ''}</td>
+            <td class="r calc" data-amt>${c.rows[i].amount ? kes(c.rows[i].amount) : ''}</td>
+            <td class="c"><input type="checkbox" data-f="paid"${r.paid ? ' checked' : ''} aria-label="Paid"></td>
+            <td><input data-f="notes" value="${esc(r.notes)}"></td>
+            <td><button type="button" class="btn-text danger" data-del title="Delete this sale">✕</button></td>
+          </tr>`).join('') || `<tr><td colspan="11" class="empty-row">No sales yet. Press <b>Add sale</b>.</td></tr>`}</tbody>
+        <tfoot><tr><td colspan="4"><b>Total</b></td><td class="r" id="lg-t-bags">${kes(c.soldBags)}</td><td></td><td class="r" id="lg-t-kg">${kes(c.soldKg)}</td><td class="r" id="lg-t-amt"><b>${kes(c.sales)}</b></td><td colspan="3" class="muted small" id="lg-t-unpaid">${c.unpaid ? 'Not yet paid: ' + kes(c.unpaid) : ''}</td></tr></tfoot>
+      </table></div>`;
+    $('lg-add').onclick = addSale;
+    $('lg-unpaid').onchange = e => $('lg-sheet').querySelector('tbody').classList.toggle('only-unpaid', e.target.checked);
+    $('lg-sheet').querySelectorAll('tr[data-id]').forEach(tr => {
+      const r = L.sales.find(x => x.id === tr.dataset.id);
+      let timer;
+      const save = async () => {
+        const patch = {};
+        tr.querySelectorAll('[data-f]').forEach(el => {
+          const f = el.dataset.f;
+          let v = el.type === 'checkbox' ? el.checked : el.value.trim();
+          if (['size_kg', 'bags', 'price_per_bag'].includes(f)) v = v === '' ? null : num(v);
+          if (f === 'sold_on' && !v) v = today();
+          if (JSON.stringify(v) !== JSON.stringify(r[f])) patch[f] = v;
+        });
+        if (!Object.keys(patch).length) return;
+        patch.updated_at = new Date().toISOString();
+        tr.classList.add('saving');
+        const { error } = await db.from('rice_sales').update(patch).eq('id', r.id);
+        tr.classList.remove('saving');
+        if (error){ tr.classList.add('save-err'); toast('Not saved: ' + error.message); return; }
+        tr.classList.remove('save-err');
+        Object.assign(r, patch);
+      };
+      const recalc = () => {
+        // Update this row's kg and amount and the totals as you type, before saving.
+        const tmp = Object.assign({}, r);
+        tr.querySelectorAll('[data-f]').forEach(el => { tmp[el.dataset.f] = el.type === 'checkbox' ? el.checked : (['size_kg', 'bags', 'price_per_bag'].includes(el.dataset.f) && el.value.trim() === '' ? null : el.value); });
+        const list = L.sales.map(x => x === r ? tmp : x), cc = ledgerCalc(L.batch, list), i = L.sales.indexOf(r);
+        tr.querySelector('[data-kg]').textContent = cc.rows[i].kg ? kes(cc.rows[i].kg) : '';
+        tr.querySelector('[data-amt]').textContent = cc.rows[i].amount ? kes(cc.rows[i].amount) : '';
+        tr.querySelector('[data-f=price_per_bag]').placeholder = cc.priceFor(tmp.size_kg) ? kes(cc.priceFor(tmp.size_kg)) : '';
+        tr.classList.toggle('unpaid', !tmp.paid);
+        $('lg-t-bags').textContent = kes(cc.soldBags);
+        $('lg-t-kg').textContent = kes(cc.soldKg);
+        $('lg-t-amt').innerHTML = `<b>${kes(cc.sales)}</b>`;
+        $('lg-t-unpaid').textContent = cc.unpaid ? 'Not yet paid: ' + kes(cc.unpaid) : '';
+        drawCards(cc);
+      };
+      tr.querySelectorAll('[data-f]').forEach(el => {
+        el.addEventListener('input', () => { recalc(); clearTimeout(timer); timer = setTimeout(save, 700); });
+        el.addEventListener('change', () => { recalc(); clearTimeout(timer); save(); });
+      });
+      tr.querySelector('[data-del]').onclick = async e => {
+        const btn = e.currentTarget;
+        if (!btn.classList.contains('armed')){ btn.classList.add('armed'); btn.textContent = 'Delete?'; setTimeout(() => { btn.classList.remove('armed'); btn.textContent = '✕'; }, 3500); return; }
+        const { error } = await db.from('rice_sales').delete().eq('id', r.id);
+        if (error){ toast(error.message); return; }
+        L.sales = L.sales.filter(x => x !== r);
+        drawSales(); drawCards();
+        toast('Sale deleted');
+      };
+    });
+  }
+
+  async function addSale(fields){
+    const row = Object.assign({ batch_id: L.batch.id, sold_on: today(), buyer: '', paid: false, notes: '' }, fields && fields.batch_id ? fields : {});
+    const { data, error } = await db.from('rice_sales').insert([row]).select().single();
+    if (error){ toast('Not added: ' + error.message); return null; }
+    L.sales.push(data);
+    drawSales(); drawCards();
+    const tr = $('lg-sheet').querySelector(`tr[data-id="${data.id}"]`);
+    if (tr){ tr.scrollIntoView({ block: 'nearest' }); tr.querySelector('[data-f=buyer]').focus(); }
+    return data;
+  }
+
+  /* ----- Batch summary: the inputs and everything worked out from them ----- */
+  function drawSummary(){
+    const b = JSON.parse(JSON.stringify(L.batch));
+    const line = (list, i, it) => `<div class="cost-line" data-list="${list}" data-i="${i}">
+        <input data-k="label" value="${esc(it.label)}" placeholder="What it was for" aria-label="Cost">
+        <input data-k="amount" class="r" inputmode="numeric" value="${esc(it.amount)}" aria-label="Amount">
+        <button type="button" class="btn-text danger" data-rm title="Remove">✕</button></div>`;
+    $('lg-sheet').innerHTML = `
+      <form id="lg-form" class="lg-summary">
+        <section class="panel-box lg-box">
+          <h2>Batch</h2>
+          <div class="fields">
+            <label class="full">Name <input name="name" value="${esc(b.name)}" required></label>
+            <label class="half">Started on <input type="date" name="started_on" value="${esc(b.started_on || '')}"></label>
+            <label class="half">Status <select name="status"><option value="active"${b.status === 'active' ? ' selected' : ''}>Active</option><option value="closed"${b.status === 'closed' ? ' selected' : ''}>Closed (sold out / finished)</option></select></label>
+            <label class="full">Notes <textarea name="notes" rows="2">${esc(b.notes)}</textarea></label>
+          </div>
+        </section>
+        <section class="panel-box lg-box">
+          <h2>1. Purchase</h2>
+          <table class="sheet mini"><thead><tr><th>Bag size (kg)</th><th class="r">No. of bags</th><th class="r">Total kg</th><th></th></tr></thead>
+            <tbody id="lg-sizes"></tbody>
+            <tfoot><tr><td><b>Total</b></td><td class="r" data-o="totBags"></td><td class="r" data-o="totKg"></td><td></td></tr></tfoot></table>
+          <button type="button" class="btn-text" id="lg-add-size">+ Add a bag size</button>
+          <div class="kv"><label>Price of rice per kg <input name="price_kg" class="r" inputmode="numeric" value="${esc(b.price_kg)}"></label>
+            <label>Price per empty sack/bag <input name="price_bag" class="r" inputmode="numeric" value="${esc(b.price_bag)}"></label></div>
+        </section>
+        <section class="panel-box lg-box">
+          <h2>2. Costs</h2>
+          <div class="kv-out"><span>Rice (total kg × price per kg)</span><b data-o="rice"></b></div>
+          <div class="kv-out"><span>Bags (no. of bags × price per bag)</span><b data-o="bagsCost"></b></div>
+          <div id="lg-costs">${b.costs.map((it, i) => line('costs', i, it)).join('')}</div>
+          <button type="button" class="btn-text" data-add-line="costs">+ Add a cost</button>
+          <div class="kv-out"><span>Selling trips (section 3)</span><b data-o="tripsTotal"></b></div>
+          <div class="kv-out total"><span>TOTAL COST</span><b data-o="totalCost"></b></div>
+        </section>
+        <section class="panel-box lg-box">
+          <h2>3. Selling trips</h2>
+          <div class="kv"><label>Number of trips <input name="trips" class="r" inputmode="numeric" value="${esc(b.trips)}"></label></div>
+          <p class="muted small">Cost of one trip:</p>
+          <div id="lg-trip-costs">${b.trip_costs.map((it, i) => line('trip_costs', i, it)).join('')}</div>
+          <button type="button" class="btn-text" data-add-line="trip_costs">+ Add a trip cost</button>
+          <div class="kv-out"><span>Cost per trip</span><b data-o="tripCost"></b></div>
+          <div class="kv-out total"><span>Total cost of all trips</span><b data-o="tripsTotal"></b></div>
+        </section>
+        <section class="panel-box lg-box wide">
+          <h2>4. Pricing</h2>
+          <div class="kv three"><label>Profit target <input name="target" class="r" inputmode="numeric" value="${esc(b.target)}"></label>
+            <div class="kv-out"><span>Break-even price per kg</span><b data-o="beKg"></b></div>
+            <div class="kv-out"><span>Price per kg to hit target</span><b data-o="tgKg"></b></div></div>
+          <div class="sheet-wrap"><table class="sheet mini"><thead><tr><th>Bag</th><th class="r">Break-even</th><th class="r">At target</th><th class="r">Your price</th><th class="r">No. of bags</th><th class="r">Expected sales</th></tr></thead>
+            <tbody id="lg-pricing"></tbody>
+            <tfoot><tr><td colspan="5"><b>If all bags sell at your price: expected sales</b></td><td class="r" data-o="expTotal"></td></tr>
+              <tr><td colspan="5"><b>Expected profit</b></td><td class="r" data-o="expProfit"></td></tr></tfoot></table></div>
+        </section>
+        <div class="lg-save">
+          <button type="button" class="btn-text danger" id="lg-del-batch">Delete batch</button>
+          <span class="spacer"></span>
+          <span class="muted small" id="lg-dirty"></span>
+          <button type="submit" class="btn btn-sm btn-navy">Save batch</button>
+        </div>
+      </form>`;
+    const f = $('lg-form');
+    const read = () => {
+      b.name = f.name.value.trim(); b.started_on = f.started_on.value || null; b.status = f.status.value; b.notes = f.notes.value.trim();
+      b.price_kg = num(f.price_kg.value); b.price_bag = num(f.price_bag.value); b.trips = Math.round(num(f.trips.value)); b.target = num(f.target.value);
+      b.sizes = [...f.querySelectorAll('#lg-sizes tr')].map((tr, i) => {
+        const pr = f.querySelector(`#lg-pricing [data-price="${i}"]`);
+        return { size: num(tr.querySelector('[data-s=size]').value), bags: num(tr.querySelector('[data-s=bags]').value), price: num(pr ? pr.value : 0) };
+      });
+      ['costs', 'trip_costs'].forEach(list => {
+        b[list] = [...f.querySelectorAll(`.cost-line[data-list="${list}"]`)].map(el => ({ label: el.querySelector('[data-k=label]').value.trim(), amount: num(el.querySelector('[data-k=amount]').value) }));
+      });
+    };
+    const out = () => {
+      const c = ledgerCalc(b, L.sales);
+      const set = (k, v) => f.querySelectorAll(`[data-o="${k}"]`).forEach(el => { el.textContent = v; });
+      c.sizes.forEach((s, i) => set('kg' + i, kes(s.size * s.bags)));
+      set('totBags', kes(c.totBags)); set('totKg', kes(c.totKg)); set('rice', kes(c.rice)); set('bagsCost', kes(c.bagsCost));
+      set('tripCost', kes(c.tripCost)); set('tripsTotal', kes(c.tripsTotal)); set('totalCost', kes(c.totalCost));
+      set('beKg', kes2(c.beKg)); set('tgKg', kes2(c.tgKg)); set('expTotal', kes(c.expTotal)); set('expProfit', kes(c.expProfit));
+      c.sizes.forEach((s, i) => { set('lbl' + i, `${s.size} kg bag`); set('be' + i, kes(s.size * c.beKg)); set('tg' + i, kes(s.size * c.tgKg)); set('nb' + i, kes(s.bags)); set('ex' + i, kes(s.price * s.bags)); });
+    };
+    // Bag sizes appear twice: purchase (size, bags) and pricing (your price). Both are drawn from b.sizes.
+    const renderSizes = () => {
+      $('lg-sizes').innerHTML = b.sizes.map((s, i) => `<tr data-i="${i}"><td><input data-s="size" inputmode="numeric" value="${esc(s.size)}" aria-label="Bag size in kg"></td>
+        <td><input data-s="bags" class="r" inputmode="numeric" value="${esc(s.bags)}" aria-label="Number of bags"></td><td class="r calc" data-o="kg${i}"></td>
+        <td><button type="button" class="btn-text danger" data-rm-size title="Remove this bag size">✕</button></td></tr>`).join('');
+      $('lg-pricing').innerHTML = b.sizes.map((s, i) => `<tr><td data-o="lbl${i}"></td><td class="r calc" data-o="be${i}"></td><td class="r calc" data-o="tg${i}"></td>
+        <td><input data-price="${i}" class="r" inputmode="numeric" value="${esc(s.price)}" aria-label="Your price"></td><td class="r calc" data-o="nb${i}"></td><td class="r calc" data-o="ex${i}"></td></tr>`).join('');
+      wire();
+    };
+    const changed = () => { read(); out(); L.dirty = true; $('lg-dirty').textContent = 'Unsaved changes'; };
+    const wire = () => {
+      f.querySelectorAll('input,select,textarea').forEach(el => { el.oninput = changed; });
+      f.querySelectorAll('[data-rm]').forEach(btn => { btn.onclick = () => { btn.parentElement.remove(); changed(); }; });
+      f.querySelectorAll('[data-rm-size]').forEach(btn => { btn.onclick = () => {
+        read(); b.sizes.splice(+btn.closest('tr').dataset.i, 1); renderSizes(); changed();
+      }; });
+    };
+    f.querySelectorAll('[data-add-line]').forEach(btn => { btn.onclick = () => {
+      const list = btn.dataset.addLine, box = list === 'costs' ? $('lg-costs') : $('lg-trip-costs');
+      box.insertAdjacentHTML('beforeend', line(list, box.children.length, { label: '', amount: '' }));
+      wire(); box.lastElementChild.querySelector('input').focus(); changed();
+    }; });
+    $('lg-add-size').onclick = () => {
+      read(); b.sizes.push({ size: '', bags: '', price: '' }); renderSizes(); changed();
+      $('lg-sizes').lastElementChild.querySelector('input').focus();
+    };
+    f.onsubmit = async e => {
+      e.preventDefault();
+      read();
+      if (!b.name){ toast('Give the batch a name'); return; }
+      if (b.sizes.some(s => !s.size)){ toast('Every bag size needs a size in kg'); return; }
+      const patch = { name: b.name, started_on: b.started_on, status: b.status, notes: b.notes, sizes: b.sizes, price_kg: b.price_kg,
+        price_bag: b.price_bag, costs: b.costs.filter(x => x.label || x.amount), trips: b.trips,
+        trip_costs: b.trip_costs.filter(x => x.label || x.amount), target: b.target, updated_at: new Date().toISOString() };
+      const { data, error } = await db.from('rice_batches').update(patch).eq('id', L.batch.id).select().single();
+      if (error){ toast('Not saved: ' + error.message); return; }
+      L.dirty = false;
+      toast('Batch saved');
+      refresh();
+    };
+    $('lg-del-batch').onclick = async () => {
+      const btn = $('lg-del-batch');
+      if (!armed(btn)) return;
+      const { error } = await db.from('rice_batches').delete().eq('id', L.batch.id);
+      if (error){ toast(error.message); return; }
+      try { localStorage.removeItem('kanam_batch'); } catch (e) {}
+      L.dirty = false;
+      toast('Batch deleted');
+      refresh();
+    };
+    renderSizes(); out();
+    L.dirty = false;
+  }
+
+  /* ----- Sales progress ----- */
+  function drawProgress(){
+    const b = L.batch, c = ledgerCalc(b, L.sales);
+    $('lg-sheet').innerHTML = `
+      <div class="lg-summary">
+        <section class="panel-box lg-box wide">
+          <h2>5. Sales progress</h2>
+          <div class="sheet-wrap"><table class="sheet mini"><thead><tr><th>Bag size</th><th class="r">Bags bought</th><th class="r">Bags sold</th><th class="r">Bags left</th><th class="r">Sales so far</th></tr></thead>
+            <tbody>${c.bySize.map(s => `<tr><td>${s.size} kg bags</td><td class="r">${kes(s.sold + s.left)}</td><td class="r">${kes(s.sold)}</td><td class="r${s.left < 0 ? ' neg' : ''}">${kes(s.left)}</td><td class="r">${kes(s.amount)}</td></tr>`).join('')}</tbody>
+            <tfoot><tr><td><b>Total</b></td><td class="r">${kes(c.totBags)}</td><td class="r">${kes(c.soldBags)}</td><td class="r">${kes(c.totBags - c.soldBags)}</td><td class="r"><b>${kes(c.sales)}</b></td></tr></tfoot></table></div>
+        </section>
+        <section class="panel-box lg-box">
+          <h2>Against costs and target</h2>
+          <div class="kv-out"><span>Total cost</span><b>${kes(c.totalCost)}</b></div>
+          <div class="kv-out"><span>Profit target</span><b>${kes(b.target)}</b></div>
+          <div class="kv-out"><span>Money still to recover</span><b>${kes(c.recover)}</b></div>
+          <div class="kv-out total"><span>Profit so far</span><b class="${c.profit < 0 ? 'neg' : 'pos'}">${kes(c.profit)}</b></div>
+          <div class="kv-out"><span>Still needed to reach target</span><b>${kes(c.needed)}</b></div>
+          <p class="lg-status-line">${esc(c.status)}</p>
+        </section>
+        <section class="panel-box lg-box">
+          <h2>Other figures</h2>
+          <div class="kv-out"><span>Total kg sold</span><b>${kes(c.soldKg)} of ${kes(c.totKg)}</b></div>
+          <div class="kv-out"><span>Not yet paid</span><b>${kes(c.unpaid)}</b></div>
+          <div class="kv-out"><span>Average price per kg so far</span><b>${c.soldKg ? kes2(c.sales / c.soldKg) : '–'}</b></div>
+          <div class="kv-out"><span>Break-even price per kg</span><b>${kes2(c.beKg)}</b></div>
+          <div class="kv-out"><span>Number of sales</span><b>${L.sales.length}</b></div>
+        </section>
+      </div>`;
+  }
+
+  async function newBatch(){
+    if (L.dirty && !confirmLeave()) return;
+    const from = L.batch;
+    const row = from ? { name: `Batch ${L.batches.length + 1}`, started_on: today(), sizes: from.sizes, price_kg: from.price_kg, price_bag: from.price_bag,
+        costs: from.costs, trips: from.trips, trip_costs: from.trip_costs, target: from.target }
+      : { name: 'Batch 1', started_on: today(), sizes: [{ size: 5, bags: 0, price: 0 }, { size: 10, bags: 0, price: 0 }, { size: 25, bags: 0, price: 0 }] };
+    const { data, error } = await db.from('rice_batches').insert([row]).select().single();
+    if (error){ toast('Not created: ' + error.message); return; }
+    try { localStorage.setItem('kanam_batch', data.id); localStorage.setItem('kanam_sheet', 'summary'); } catch (e) {}
+    toast(from ? `${data.name} created with the same costs as ${from.name}. Change what's different.` : 'Batch created');
+    refresh();
+  }
+
+  // The batch as an Excel workbook (values), laid out like the original.
+  async function downloadLedger(){
+    try {
+      await loadScript('https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+      const b = L.batch, c = ledgerCalc(b, L.sales);
+      const S = [[`Pishori Trading Ledger – ${b.name}`], ['All amounts in KES. Downloaded from the Kanam portal ' + day(new Date())], [],
+        ['1. Purchase'], ['', 'Bag size (kg)', 'No. of bags', 'Total kg'],
+        ...c.sizes.map(s => [`Bags of ${s.size} kg`, s.size, s.bags, s.size * s.bags]), ['Total', '', c.totBags, c.totKg],
+        ['Price of rice per kg', num(b.price_kg)], ['Price per empty sack/bag', num(b.price_bag)], [],
+        ['2. Costs', 'Amount'], ['Rice (total kg × price per kg)', c.rice], ['Bags (no. of bags × price per bag)', c.bagsCost],
+        ...b.costs.map(x => [x.label, num(x.amount)]), ['Selling trips', c.tripsTotal], ['TOTAL COST', c.totalCost], [],
+        ['3. Selling trips'], ['Number of trips', num(b.trips)], ...b.trip_costs.map(x => [x.label + ' per trip', num(x.amount)]),
+        ['Cost per trip', c.tripCost], ['Total cost of all trips', c.tripsTotal], [],
+        ['4. Pricing'], ['Profit target', num(b.target)], ['Break-even price per kg', +c.beKg.toFixed(2)], ['Price per kg to hit profit target', +c.tgKg.toFixed(2)], [],
+        ['Bag', 'Break-even', 'At target', 'Your price', 'No. of bags', 'Expected sales'],
+        ...c.sizes.map(s => [`${s.size} kg bag`, Math.round(s.size * c.beKg), Math.round(s.size * c.tgKg), s.price, s.bags, s.price * s.bags]),
+        ['Expected total sales', c.expTotal], ['Expected profit', c.expProfit], [],
+        ['5. Sales progress'], ['', 'Bags sold', 'Bags left', 'Sales so far'], ...c.bySize.map(s => [`${s.size} kg bags`, s.sold, s.left, s.amount]),
+        ['Total', c.soldBags, c.totBags - c.soldBags, c.sales], [],
+        ['Money still to recover before break-even', c.recover], ['Profit so far', c.profit], ['Still needed to reach profit target', c.needed], ['Status', c.status]];
+      const G = [['Date', 'Buyer', 'Bag size (kg)', 'No. of bags', 'Price per bag', 'Total kg', 'Amount (KES)', 'Paid?', 'Notes'],
+        ...L.sales.map((r, i) => [r.sold_on, r.buyer, r.size_kg, r.bags, r.price_per_bag != null ? num(r.price_per_bag) : c.priceFor(r.size_kg), c.rows[i].kg, c.rows[i].amount, r.paid ? 'Yes' : 'No', r.notes]),
+        [], ['Total', '', '', c.soldBags, '', c.soldKg, c.sales]];
+      const wb = XLSX.utils.book_new();
+      const ws1 = XLSX.utils.aoa_to_sheet(S); ws1['!cols'] = [{ wch: 42 }, { wch: 14 }, { wch: 14 }, { wch: 14 }, { wch: 12 }, { wch: 15 }];
+      const ws2 = XLSX.utils.aoa_to_sheet(G); ws2['!cols'] = [{ wch: 12 }, { wch: 28 }, { wch: 13 }, { wch: 12 }, { wch: 13 }, { wch: 10 }, { wch: 14 }, { wch: 8 }, { wch: 30 }];
+      XLSX.utils.book_append_sheet(wb, ws1, 'Batch Summary');
+      XLSX.utils.book_append_sheet(wb, ws2, 'Sales Log');
+      XLSX.writeFile(wb, `Kanam rice ledger - ${fileSafe(b.name)}.xlsx`);
+    } catch (err){ toast('Download failed: ' + err.message); }
+  }
+
+  // From an inquiry: put a rice order straight into the active batch's sales log.
+  async function inquiryToLedger(i){
+    const { data: b, error } = await db.from('rice_batches').select('*').eq('status', 'active').order('created_at', { ascending: false }).limit(1).maybeSingle();
+    if (error && missingTable(error)){ toast('Run sql/04-ledger.sql first'); return; }
+    if (error || !b){ toast('There is no active batch in the Rice ledger'); return; }
+    const size = num((String(i.product || '').match(/(\d+)\s*kg/i) || [])[1]) || null;
+    const bags = num(String(i.quantity || '').match(/\d+/)) || null;
+    const { error: e2 } = await db.from('rice_sales').insert([{ batch_id: b.id, sold_on: today(), buyer: i.name + (i.phone ? ' (' + i.phone + ')' : ''),
+      size_kg: size, bags, paid: false, notes: 'From website order' + (i.message ? ': ' + i.message.slice(0, 120) : '') }]);
+    if (e2){ toast('Not added: ' + e2.message); return; }
+    toast(`Added to ${b.name}. Check the price and tick Paid when you're paid.`);
+  }
 
   /* ---------------- Pages (all the website's text) ---------------- */
   const PAGES = [['index', 'Home'], ['about', 'About'], ['services', 'Services'], ['rice', 'Pishori Rice'], ['projects', 'Projects'], ['news', 'News'], ['contact', 'Contact']];
@@ -1193,10 +1651,10 @@
   /* ---------------- Activity log ---------------- */
   const TABLE_TEXT = { content: 'page text', media: 'photo', posts: 'news post', testimonials: 'testimonial', faqs: 'FAQ', team: 'team member',
     projects: 'project', products: 'product', settings: 'company detail', staff: 'staff member', inquiries: 'inquiry',
-    company_docs: 'profile document', company_profile: 'profile item' };
+    company_docs: 'profile document', company_profile: 'profile item', rice_batches: 'rice batch', rice_sales: 'rice sale' };
   function describe(a){
     const r = a.after || a.before || {};
-    const name = r.title || r.name || r.question || r.key || r.email || r.path || '';
+    const name = r.title || r.name || r.buyer || r.question || r.key || r.email || r.path || '';
     const verb = { insert: 'Added', update: 'Changed', delete: 'Deleted' }[a.action] || a.action;
     return `${verb} ${TABLE_TEXT[a.table_name] || a.table_name}${name ? ` “${String(name).slice(0, 60)}”` : ''}`;
   }

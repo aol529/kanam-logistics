@@ -206,3 +206,67 @@ code{background:var(--surface-2);padding:1px 5px;border-radius:4px;font-size:.92
   .doc-cards{grid-template-columns:1fr;}
 }
 .doc-fields .half{min-width:120px;}
+
+/* Rice ledger */
+.lg-cards{margin-bottom:14px;}
+.stat-card.static{cursor:default;}
+.stat-card.static:hover{border-color:var(--line);}
+.stat-card.good b{color:var(--ok);}
+.stat-card .lg-status{font-size:17px;line-height:1.25;}
+.sheet-tabs{display:flex;gap:4px;border-bottom:1px solid var(--line);margin-bottom:14px;overflow-x:auto;}
+.sheet-tabs button{border:0;background:none;font:600 14.5px Inter,sans-serif;color:var(--muted);padding:10px 14px;border-bottom:3px solid transparent;cursor:pointer;white-space:nowrap;}
+.sheet-tabs button[aria-selected="true"]{color:var(--navy);border-bottom-color:var(--navy);}
+.lg-sub{margin-bottom:10px;}
+.lg-sub p{margin:0;max-width:560px;}
+.sheet-wrap{overflow-x:auto;background:var(--surface);border:1px solid var(--line);border-radius:var(--radius);}
+.lg-box .sheet-wrap{border:0;border-radius:0;}
+.sheet{width:100%;border-collapse:collapse;font-size:14px;}
+.sheet th{background:#2f5233;color:#fff;font-weight:600;text-align:left;padding:8px 8px;white-space:nowrap;font-size:13px;}
+.sheet td{border-top:1px solid var(--line);padding:3px 4px;vertical-align:middle;}
+.sheet tbody tr:nth-child(even) td{background:#f6f9f4;}
+.sheet .r{text-align:right;}
+.sheet .c{text-align:center;}
+.sheet td.calc{background:#f1f1f1 !important;padding:6px 8px;font-variant-numeric:tabular-nums;color:var(--ink);}
+.sheet tfoot td{border-top:2px solid #2f5233;padding:8px;font-variant-numeric:tabular-nums;background:var(--surface);}
+.sheet input,.sheet select{width:100%;border:1px solid transparent;background:#fffbe6;border-radius:6px;padding:6px 7px;font-size:14px;min-width:0;}
+.sheet input:focus,.sheet select:focus{border-color:var(--navy);outline:none;background:#fff;}
+.sheet input[type=checkbox]{width:18px;height:18px;accent-color:var(--ok);}
+.sales-sheet{min-width:1100px;}
+.sales-sheet td:nth-child(10){min-width:170px;}
+.sales-sheet tfoot td:first-child{text-align:left;}
+.sales-sheet td:nth-child(1){width:32px;text-align:center;font-size:12.5px;}
+.sales-sheet td:nth-child(2){width:138px;}
+.sales-sheet td:nth-child(3){min-width:170px;}
+.sales-sheet td:nth-child(4){width:92px;}
+.sales-sheet td:nth-child(5){width:60px;}
+.sales-sheet td:nth-child(6){width:100px;}
+.sales-sheet td:nth-child(7){width:80px;}
+.sales-sheet td:nth-child(8){width:100px;}
+.sales-sheet td:nth-child(9){width:48px;}
+.sales-sheet td:last-child{width:62px;text-align:center;}
+.sales-sheet tr.saving td{opacity:.6;}
+.sales-sheet tr.save-err td:first-child{box-shadow:inset 3px 0 0 var(--err);}
+.sales-sheet tbody.only-unpaid tr:not(.unpaid){display:none;}
+.sheet .btn-text.armed{background:var(--err);color:#fff;border-radius:999px;padding:4px 8px;font-size:12px;}
+.empty-row{text-align:center;color:var(--muted);padding:26px !important;}
+.lg-summary{display:grid;grid-template-columns:repeat(auto-fit,minmax(400px,1fr));gap:14px;}
+.lg-box{display:grid;gap:8px;align-content:start;}
+.lg-box.wide{grid-column:1/-1;}
+.lg-box h2{margin:0 0 4px;color:#2f5233;}
+.sheet.mini th{background:none;color:var(--muted);font-size:12.5px;padding:4px 6px;}
+.sheet.mini td{padding:3px 4px;}
+.kv{display:grid;gap:8px;}
+.kv.three{grid-template-columns:repeat(auto-fit,minmax(200px,1fr));align-items:end;}
+.kv label{display:flex;align-items:center;justify-content:space-between;gap:12px;font-weight:500;font-size:14.5px;}
+.kv label input{width:110px;background:#fffbe6;text-align:right;}
+.kv-out{display:flex;justify-content:space-between;gap:12px;font-size:14.5px;padding:6px 2px;border-bottom:1px dashed var(--line);}
+.kv-out b{font-variant-numeric:tabular-nums;}
+.kv-out.total{border-bottom:0;border-top:2px solid #2f5233;font-weight:700;padding-top:9px;}
+.kv-out .neg,.sheet .neg{color:var(--err);}
+.kv-out .pos{color:var(--ok);}
+.cost-line{display:grid;grid-template-columns:minmax(0,1fr) 104px 30px;gap:6px;align-items:center;}
+.cost-line input{padding:7px 9px;font-size:14px;background:#fffbe6;}
+.lg-save{grid-column:1/-1;position:sticky;bottom:0;display:flex;align-items:center;gap:10px;background:rgba(243,241,236,.95);padding:12px 0;border-top:1px solid var(--line);}
+.lg-status-line{margin:8px 0 0;padding:10px 12px;border-radius:10px;background:#eef3ea;color:#2f5233;font-weight:700;}
+@media (max-width:600px){ .lg-summary{grid-template-columns:1fr;} .kv label input,.cost-line{grid-template-columns:minmax(0,1fr) 100px 30px;} }
+.cost-line .r{text-align:right;}

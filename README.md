@@ -9,7 +9,8 @@ Company website and CMS. Static HTML/CSS/JS backed by Supabase.
 | Section | What it does |
 |---|---|
 | Dashboard | New inquiries, stock, news drafts, details still to fill in, recent changes |
-| Inquiries | Orders and quote requests from the site: status, staff notes, call / WhatsApp, download as CSV |
+| Inquiries | Orders and quote requests from the site: status, staff notes, call / WhatsApp, download as CSV, send a rice order to the ledger |
+| Rice ledger | The trading ledger: per batch, purchase, costs, selling trips and pricing (break-even, target price per bag), a sales log you type straight into, and progress against costs and the profit target. Download as Excel. Admin and sales only |
 | Pages | Every headline, paragraph, list item and button on every page, plus each page's Google title and description |
 | News | Posts with cover photo, simple formatting, draft / published / scheduled |
 | Media library | Upload photos once, reuse them anywhere; alt text and captions |
@@ -20,7 +21,7 @@ Company website and CMS. Static HTML/CSS/JS backed by Supabase.
 | Staff | Add staff and set their role |
 | Activity log | Every change: who, when, and what it was before |
 
-Roles: **admin** (everything), **editor** (website content), **sales** (inquiries, products, media).
+Roles: **admin** (everything), **editor** (website content), **sales** (inquiries, rice ledger, products, media).
 
 ## Placeholders
 
@@ -29,7 +30,7 @@ Anything in `[square brackets]` is a placeholder and shows **highlighted in yell
 ## Setup
 
 1. Create a Supabase project and put its URL and publishable key in `js/config.js`.
-2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`, then `sql/03-profile.sql`.
+2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`, then `sql/03-profile.sql`, then `sql/04-ledger.sql`.
 3. Authentication → Users → **Add user** (your email and a password, tick Auto Confirm). Then in the SQL editor:
    `insert into public.staff (user_id, email, name, role) select id, email, 'Your name', 'admin' from auth.users where email = 'you@example.com';`
    (Later staff are added from the portal's Staff page.)
