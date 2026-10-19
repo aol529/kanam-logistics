@@ -2,7 +2,7 @@
 
 Company website and CMS. Static HTML/CSS/JS backed by Supabase.
 
-**Website**: Home, About, Services (including machinery hire), Pishori Rice, Projects, News and Contact, with the order / quote form and a WhatsApp button. Live at https://aol529.github.io/kanam-logistics/.
+**Website**: Home, About, Services (including machinery hire), Pishori Rice, Projects, News, Contact and Our companies (the sister companies, each shown once it is switched on in the portal), with the order / quote form and a WhatsApp button. Live at https://aol529.github.io/kanam-logistics/.
 
 **Kanam CMS** (`/portal/`): staff sign in and manage the whole site.
 
@@ -18,10 +18,13 @@ Company website and CMS. Static HTML/CSS/JS backed by Supabase.
 | Machinery hire | Grader, excavator and other machines on the Services page: hire rate (per hour / day / week), terms, status (available, on hire, coming soon), photo |
 | Products, Projects | Rice bags and prices, stock; road works, supplies and rice projects |
 | Testimonials, FAQs, Team | Shown on Home, Contact and About (testimonials and team stay hidden until there is one) |
-| Company details | Phone, WhatsApp, email, KRA PIN, registration, About text... used across the site |
+| Company details | Phone, WhatsApp, email, KRA PIN, registration, About text... used across the site. Per company: pick it in the switcher |
+| Companies | The group: Kanam Logistics, Techpride Ventures Ltd, Nyamasaria Glassmart and General Hardwares. Add a company, or switch one on or off the website. Admins only |
 | Company profile | Tender documents (incorporation, CR12, KRA PIN & TCC, directors, trade license, NCA, power of attorney, AGPO, litigation & affidavit, bank statement, audited accounts, past experience): upload, preview, expiry warnings, download all as one ZIP. **Private, admins only** |
 | Staff | Add staff and set their role |
 | Activity log | Every change: who, when, and what it was before |
+
+**The company switcher** (top of the menu) picks which company's details, tender documents (Company profile), projects, inquiries and road works you see. Pages, news, media, products, machinery, FAQs, testimonials, team and staff are shared. The rice ledger is Kanam's.
 
 Roles: **admin** (everything), **editor** (website content), **sales** (inquiries, rice and road works ledgers, products, media).
 
@@ -32,7 +35,7 @@ Anything in `[square brackets]` is a placeholder and shows **highlighted in yell
 ## Setup
 
 1. Create a Supabase project and put its URL and publishable key in `js/config.js`.
-2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`, then `sql/03-profile.sql`, then `sql/04-ledger.sql`, then `sql/05-equipment.sql`, then `sql/06-roads.sql`.
+2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`, then `sql/03-profile.sql`, then `sql/04-ledger.sql`, then `sql/05-equipment.sql`, then `sql/06-roads.sql`, then `sql/07-companies.sql`.
 3. Authentication → Users → **Add user** (your email and a password, tick Auto Confirm). Then in the SQL editor:
    `insert into public.staff (user_id, email, name, role) select id, email, 'Your name', 'admin' from auth.users where email = 'you@example.com';`
    (Later staff are added from the portal's Staff page.)

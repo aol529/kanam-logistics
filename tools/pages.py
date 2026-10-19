@@ -26,7 +26,7 @@ ICON = {
 }
 
 SKIP_ATTRS = {"data-s", "data-tel", "data-mail", "data-products", "data-projects", "data-faqs",
-              "data-news", "data-team", "data-testimonials", "data-equipment", "id"}
+              "data-news", "data-team", "data-testimonials", "data-equipment", "data-companies", "id"}
 INLINE_OK = {"br", "strong", "b", "em"}
 
 def add_keys(body, page_key):
@@ -85,7 +85,7 @@ def page(file, title, desc, body, form=False):
     open(os.path.join(ROOT, file), "w").write(html)
 
 def quote_form(heading, anchor, default_kind="Rice order", intro=""):
-    kinds = ["Rice order", "Supplies & delivery", "Road works", "Machinery hire", "Other"]
+    kinds = ["Rice order", "Supplies & delivery", "Road works", "Machinery hire", "Hardware & glass", "Other"]
     opts = "".join(f'<option{" selected" if k == default_kind else ""}>{k}</option>' for k in kinds)
     return f"""
 <form class="quote" id="quote-form" novalidate>
@@ -264,6 +264,17 @@ f"""
     </div>
     <div class="posts" data-news="3"></div>
     <p style="margin-top:24px"><a class="btn btn-navy btn-sm" href="news.html">All news</a></p>
+  </div>
+</section>
+
+<section class="alt" data-hide-empty hidden>
+  <div class="wrap">
+    <div class="section-head">
+      <span class="eyebrow">Our companies</span>
+      <h2>One family of companies</h2>
+      <p class="muted">Kanam Logistics and its sister companies: road works, machinery, supplies and hardware, under one roof.</p>
+    </div>
+    <div class="co-cards" data-companies></div>
   </div>
 </section>
 {CTA}
@@ -545,6 +556,22 @@ page("news.html", "News – Kanam Logistics Limited",
 
 <section class="page-hero" hidden>
   <div class="wrap article-wrap"><article id="article"></article></div>
+</section>
+""")
+page("companies.html", "Our companies – Kanam Logistics Limited",
+     "Kanam Logistics Limited and its sister companies: road contracts and machinery, supplies, hardware and glass.",
+"""
+<section class="page-hero" id="companies-listing">
+  <div class="wrap">
+    <span class="eyebrow">Our companies</span>
+    <h1>One family of companies</h1>
+    <p class="muted" style="max-width:620px">Kanam Logistics and its sister companies. Each one is its own registered business, and you can reach all of them through us.</p>
+    <div class="co-cards" data-companies style="margin-top:32px"></div>
+  </div>
+</section>
+
+<section class="page-hero" hidden>
+  <div class="wrap"><div id="company"></div></div>
 </section>
 """)
 print("pages written")

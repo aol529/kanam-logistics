@@ -6,7 +6,10 @@
    Products, projects, news, testimonials, FAQs and team share one editor,
    described by RESOURCES below. Photos live in the media library (table
    "media", storage bucket "site"). Tender documents (Company profile) are
-   private: table "company_docs", storage bucket "profile", admins only. */
+   private: table "company_docs", storage bucket "profile", admins only.
+   The group: the company switcher picks which company's details, tender
+   documents, projects, inquiries and road works are shown (table
+   "companies", sql/07-companies.sql). Everything else is shared. */
 (function(){
   const D = window.KANAM_DEFAULTS;
   const cfg = window.KANAM_CONFIG || {};
@@ -50,6 +53,35 @@
   /* ================================ Sign in ================================ */
   let me = null;                     // { user_id, email, name, role }
 
+  /* ================================ Companies ================================ */
+  let companies = [];                // the group, in order; empty until sql/07-companies.sql is run
+  let co = 'kanam';                  // the company the switcher is on
+  try { co = localStorage.getItem('kanam_co') || 'kanam'; } catch (e) {}
+  const grouped = () => companies.length > 0;
+  const coRow = (id = co) => companies.find(c => c.id === id) || null;
+  const coName = (id = co) => { const c = coRow(id); return c ? c.short_name || c.name : 'Kanam Logistics'; };
+  // " · Techpride Ventures" after a heading, once there is more than one company.
+  const coLabel = () => companies.length > 1 ? ` <span class="co-tag">${esc(coName())}</span>` : '';
+  // Add .eq('company', co) to a query when companies are set up.
+  const byCo = q => grouped() ? q.eq('company', co) : q;
+
+  async function loadCompanies(){
+    const { data, error } = await db.from('companies').select('*').order('sort').order('name');
+    companies = error ? [] : data || [];
+    if (!coRow()) co = 'kanam';
+    const sel = $('co-switch');
+    sel.innerHTML = companies.map(c => `<option value="${esc(c.id)}"${c.id === co ? ' selected' : ''}>${esc(c.short_name || c.name)}</option>`).join('');
+    $('co-wrap').hidden = companies.length < 2;
+    $('co-note').textContent = coRow() && !coRow().published ? 'Hidden from the website' : '';
+  }
+  $('co-switch').onchange = () => {
+    co = $('co-switch').value;
+    try { localStorage.setItem('kanam_co', co); } catch (e) {}
+    $('co-note').textContent = coRow() && !coRow().published ? 'Hidden from the website' : '';
+    buildNav();
+    show(TABS.find(t => t.id === current && allowed(t)) ? current : 'dashboard');
+  };
+
   $('signin-form').onsubmit = async e => {
     e.preventDefault();
     const f = e.target;
@@ -91,6 +123,7 @@
     $('signin').hidden = true;
     $('setup').hidden = true;
     $('app').hidden = false;
+    await loadCompanies();
     buildNav();
     const want = (localStorage.getItem('kanam_tab') || 'dashboard');
     show(TABS.find(t => t.id === want && allowed(t)) ? want : 'dashboard');
@@ -100,7 +133,7 @@
   const TABS = [
     { id: 'dashboard', label: 'Dashboard', roles: ['admin', 'editor', 'sales'] },
     { id: 'inquiries', label: 'Inquiries', roles: ['admin', 'sales'] },
-    { id: 'ledger', label: 'Rice ledger', roles: ['admin', 'sales'] },
+    { id: 'ledger', label: 'Rice ledger', roles: ['admin', 'sales'], kanamOnly: true },
     { id: 'roads', label: 'Road works ledger', roles: ['admin', 'sales'] },
     { id: 'pages', label: 'Pages', roles: ['admin', 'editor'], group: 'Website' },
     { id: 'posts', label: 'News', roles: ['admin', 'editor'] },
@@ -112,18 +145,20 @@
     { id: 'faqs', label: 'FAQs', roles: ['admin', 'editor'] },
     { id: 'team', label: 'Team', roles: ['admin', 'editor'] },
     { id: 'settings', label: 'Company details', roles: ['admin', 'editor'], group: 'Company' },
+    { id: 'companies', label: 'Companies', roles: ['admin'] },
     { id: 'profile', label: 'Company profile', roles: ['admin'] },
     { id: 'staff', label: 'Staff', roles: ['admin'] },
     { id: 'activity', label: 'Activity log', roles: ['admin'] }
   ];
-  const allowed = t => me && t.roles.includes(me.role);
+  // The rice ledger is Kanam's own; it shows only while the switcher is on Kanam.
+  const allowed = t => me && t.roles.includes(me.role) && !(t.kanamOnly && co !== 'kanam');
   let current = null;
 
   function buildNav(){
     $('tabs').innerHTML = TABS.filter(allowed).map(t =>
       `${t.group ? `<span class="p-group">${t.group}</span>` : ''}<button type="button" data-tab="${t.id}">${t.label}${t.id === 'inquiries' ? ' <span class="count" id="new-count" hidden></span>' : ''}</button>`).join('');
     $('tabs').querySelectorAll('[data-tab]').forEach(b => { b.onclick = () => show(b.dataset.tab); });
-    if (allowed(TABS[1])) refreshNewCount();
+    if (allowed(TABS.find(t => t.id === 'inquiries'))) refreshNewCount();
   }
 
   function show(tab){
@@ -230,13 +265,13 @@
         terms: 'With operator. Fuel by client. Transport to site charged separately.' })
     },
     projects: {
-      table: 'projects', single: 'project', order: [['sort'], ['created_at', false]],
+      table: 'projects', single: 'project', order: [['sort'], ['created_at', false]], perCompany: true,
       title: r => r.title, sub: r => [r.category, r.client, r.location, r.year].filter(Boolean).join(' · '),
       thumb: r => r.image_path, right: r => r.published ? '' : '<span class="pill hidden">Hidden</span>',
       search: r => [r.title, r.category, r.client, r.location, r.description].join(' '),
       fields: [
         { name: 'title', label: 'Title', type: 'text', required: true, placeholder: 'e.g. Rakwaro–Kanam road maintenance' },
-        { name: 'category', label: 'Category', type: 'select', half: true, options: ['Road works', 'Supplies & delivery', 'Rice trading'] },
+        { name: 'category', label: 'Category', type: 'select', half: true, options: ['Road works', 'Supplies & delivery', 'Rice trading', 'Hardware & glass', 'Machinery hire'] },
         { name: 'client', label: 'Client', type: 'text', half: true, placeholder: 'e.g. KERRA' },
         { name: 'location', label: 'Location', type: 'text', half: true },
         { name: 'year', label: 'Year', type: 'text', half: true },
@@ -245,7 +280,31 @@
         { name: 'published', label: 'Show on the website', type: 'checkbox', inline: true },
         { name: 'sort', label: 'Order', type: 'number', inline: true, step: '1' }
       ],
-      defaults: () => ({ category: 'Road works', published: true, sort: 0, year: String(new Date().getFullYear()) })
+      defaults: () => ({ category: co === 'glassmart' ? 'Hardware & glass' : 'Road works', published: true, sort: 0, year: String(new Date().getFullYear()) })
+    },
+    companies: {
+      table: 'companies', single: 'company', order: [['sort'], ['name']],
+      title: r => r.name, sub: r => r.what, thumb: r => r.logo_path, thumbText: r => (r.short_name || r.name || '?')[0],
+      right: r => r.published ? '<span class="pill done">On the website</span>' : '<span class="pill hidden">Hidden</span>',
+      search: r => [r.name, r.short_name, r.what].join(' '),
+      intro: 'The companies in the group. A company stays off the website until “Show on the website” is ticked, so it can be set up before the handover. Each one’s contact details, registration and About text are under Company details (pick it in the switcher first); Kanam Logistics keeps its own details there as before.',
+      fields: [
+        { name: 'name', label: 'Registered name', type: 'text', required: true, placeholder: 'e.g. Techpride Ventures Ltd' },
+        { name: 'id', label: 'Short code', type: 'slug', from: 'name', half: true, help: 'Used in web addresses: companies.html?c=… Lowercase words and dashes.' },
+        { name: 'short_name', label: 'Short name', type: 'text', half: true, placeholder: 'e.g. Techpride Ventures' },
+        { name: 'what', label: 'What it does (one line)', type: 'text' },
+        { name: 'logo_path', label: 'Logo or photo', type: 'image' },
+        { name: 'published', label: 'Show on the website', type: 'checkbox', inline: true },
+        { name: 'sort', label: 'Order', type: 'number', inline: true, step: '1' }
+      ],
+      defaults: list => ({ published: false, sort: list.length + 1 }),
+      beforeSave: (row, existing) => {
+        row.id = slugify(row.id || row.name);
+        if (!row.id) throw new Error('Give the company a name.');
+        if (existing && existing.id === 'kanam' && row.id !== 'kanam') throw new Error('Kanam Logistics keeps the short code “kanam”.');
+        if (row.id === 'kanam') row.published = true;
+      },
+      afterSave: loadCompanies
     },
     posts: {
       table: 'posts', single: 'news post', order: [['created_at', false]],
@@ -324,6 +383,7 @@
   async function fetchRows(key){
     const R = RESOURCES[key];
     let q = db.from(R.table).select('*');
+    if (R.perCompany) q = byCo(q);
     R.order.forEach(([col, asc]) => { q = q.order(col, { ascending: asc !== false }); });
     const { data, error } = await q;
     if (error) throw error;
@@ -336,7 +396,7 @@
     const main = $('main');
     main.innerHTML = `
       <div class="p-head">
-        <h1>${esc(tab.label)}</h1>
+        <h1>${esc(tab.label)}${R.perCompany ? coLabel() : ''}</h1>
         <div class="p-tools">
           <input type="search" id="list-search" placeholder="Search" aria-label="Search ${esc(tab.label)}">
           <button class="btn btn-navy btn-sm" type="button" id="list-add">+ Add ${esc(R.single)}</button>
@@ -473,11 +533,13 @@
     $('edit-error').textContent = '';
     try {
       const row = readForm(R, e.target);
-      if (R.beforeSave) R.beforeSave(row);
+      if (R.beforeSave) R.beforeSave(row, existing);
+      if (R.perCompany && grouped() && !existing) row.company = co;
       row.updated_at = new Date().toISOString();
       btn.disabled = true;
       const { error } = existing ? await db.from(R.table).update(row).eq('id', existing.id) : await db.from(R.table).insert([row]);
       if (error) throw error;
+      if (R.afterSave) await R.afterSave();
       $('edit-dialog').close();
       toast('Saved');
       refresh();
@@ -502,7 +564,7 @@
   VIEWS.dashboard = async main => {
     const can = id => allowed(TABS.find(t => t.id === id));
     const [inq, posts, settings, products, activity, profile, rice, road] = await Promise.all([
-      can('inquiries') ? db.from('inquiries').select('id,status,name,kind,created_at').order('created_at', { ascending: false }).limit(200) : { data: null },
+      can('inquiries') ? byCo(db.from('inquiries').select('id,status,name,kind,created_at')).order('created_at', { ascending: false }).limit(200) : { data: null },
       can('posts') ? db.from('posts').select('id,status,title') : { data: null },
       db.from('settings').select('key,value'),
       db.from('products').select('id,in_stock,published'),
@@ -513,11 +575,14 @@
     ]);
     const saved = {};
     (settings.data || []).forEach(r => { saved[r.key] = r.value; });
-    const placeholders = Object.keys(D.settings).filter(k => isPlaceholder(saved[k] || D.settings[k]));
+    const sister = grouped() && co !== 'kanam' ? coRow() : null;
+    const placeholders = sister ? CO_FIELDS.map(([k]) => k).filter(k => isPlaceholder(sister[k]))
+      : Object.keys(D.settings).filter(k => isPlaceholder(saved[k] || D.settings[k]));
     const card = (n, label, tab, tone) => `<button type="button" class="stat-card ${tone || ''}" ${tab ? `data-go="${tab}"` : ''}><b>${n}</b><span>${label}</span></button>`;
     const fresh = inq.data ? inq.data.filter(i => i.status === 'new') : [];
     main.innerHTML = `
       <div class="p-head"><h1>Hello${me.name ? ', ' + esc(me.name.split(' ')[0]) : ''}</h1><a class="btn btn-sm btn-quiet" href="../index.html" target="_blank" rel="noopener">View website ↗</a></div>
+      ${grouped() && companies.length > 1 ? `<p class="muted">Showing <b>${esc(coName())}</b>: its details, tender documents, projects, inquiries and road works. Switch company in the menu.${coRow() && !coRow().published ? ` <span class="pill hidden">Hidden from the website</span>${me.role === 'admin' ? ' Switch it on under <b>Companies</b> when the handover is done.' : ''}` : ''}</p>` : ''}
       <div class="stat-cards">
         ${inq.data ? card(fresh.length, 'New inquiries', 'inquiries', fresh.length ? 'hot' : '') : ''}
         ${rice ? card(rice.c.profit >= 0 ? kes(rice.c.profit) : kes(rice.c.recover), `${rice.c.profit >= 0 ? 'Rice profit so far' : 'Rice: still to recover'} · ${esc(rice.b.name.replace(/\s*\(.*\)$/, ''))}`, 'ledger', rice.c.profit >= 0 ? '' : 'warn') : ''}
@@ -539,18 +604,18 @@
   /* ---------------- Inquiries ---------------- */
   let inquiries = [], editingInq = null;
   async function refreshNewCount(){
-    const { count } = await db.from('inquiries').select('id', { count: 'exact', head: true }).eq('status', 'new');
+    const { count } = await byCo(db.from('inquiries').select('id', { count: 'exact', head: true }).eq('status', 'new'));
     const el = $('new-count');
     if (el){ el.hidden = !count; el.textContent = count || ''; }
   }
 
   VIEWS.inquiries = async main => {
-    const { data, error } = await db.from('inquiries').select('*').order('created_at', { ascending: false }).limit(1000);
+    const { data, error } = await byCo(db.from('inquiries').select('*')).order('created_at', { ascending: false }).limit(1000);
     if (error) throw error;
     inquiries = data || [];
     main.innerHTML = `
       <div class="p-head">
-        <h1>Inquiries</h1>
+        <h1>Inquiries${coLabel()}</h1>
         <div class="p-tools">
           <select id="inq-status" aria-label="Show">
             <option value="open">New & contacted</option><option value="new">New</option><option value="contacted">Contacted</option>
@@ -593,7 +658,7 @@
     const csv = [cols.join(','), ...filteredInquiries().map(i => cols.map(c => cell(i[c])).join(','))].join('\r\n');
     const a = document.createElement('a');
     a.href = URL.createObjectURL(new Blob(['﻿' + csv], { type: 'text/csv' }));
-    a.download = `kanam-inquiries-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `${co}-inquiries-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     setTimeout(() => URL.revokeObjectURL(a.href), 1000);
   }
@@ -1167,7 +1232,7 @@
   // For the dashboard: the newest active project.
   async function roadStatus(){
     try {
-      const { data: p, error } = await db.from('road_projects').select('*').eq('status', 'active').order('created_at', { ascending: false }).limit(1).maybeSingle();
+      const { data: p, error } = await byCo(db.from('road_projects').select('*').eq('status', 'active')).order('created_at', { ascending: false }).limit(1).maybeSingle();
       if (error || !p) return null;
       const { data: costs } = await db.from('road_costs').select('spent_on,category,qty,price').eq('project_id', p.id);
       return { p, c: roadCalc(p, costs || []) };
@@ -1179,7 +1244,7 @@
   const confirmLeaveRoad = () => window.confirm('You have unsaved changes to the project. Leave without saving?');
 
   VIEWS.roads = async main => {
-    const { data, error } = await db.from('road_projects').select('*').order('created_at', { ascending: false });
+    const { data, error } = await byCo(db.from('road_projects').select('*')).order('created_at', { ascending: false });
     if (error){
       if (!missingTable(error)) throw error;
       main.innerHTML = `<div class="p-head"><h1>Road works ledger</h1></div>
@@ -1194,7 +1259,7 @@
     R.dirty = false;
     main.innerHTML = `
       <div class="p-head">
-        <h1>Road works ledger</h1>
+        <h1>Road works ledger${coLabel()}</h1>
         <div class="p-tools">
           <select id="rd-project" aria-label="Project">${R.projects.map(p => `<option value="${p.id}"${R.project && p.id === R.project.id ? ' selected' : ''}>${esc(p.name)}${p.status === 'closed' ? ' (closed)' : ''}</option>`).join('')}</select>
           <button class="btn btn-sm btn-quiet" type="button" id="rd-new">New project</button>
@@ -1556,6 +1621,7 @@
     if (R.dirty && !confirmLeaveRoad()) return;
     const from = R.project;
     const row = { name: `Road project ${R.projects.length + 1}`, started_on: today() };
+    if (grouped()) row.company = co;
     if (from) Object.assign(row, { client: from.client, wht_rate: from.wht_rate, diesel_price: from.diesel_price, petrol_price: from.petrol_price, templates: from.templates });
     const { data, error } = await db.from('road_projects').insert([row]).select().single();
     if (error){ toast('Not created: ' + error.message); return; }
@@ -1770,13 +1836,45 @@
     ['roads_done', 'Road contracts done (shown on Home)'], ['years_supplying', 'Years supplying institutions'],
     ['about', 'About us (our story)', 'wide'], ['mission', 'Mission', 'wide']
   ];
+  // A sister company's details live in its "companies" row.
+  const CO_FIELDS = [
+    ['name', 'Registered name'], ['what', 'What it does (one line)', 'wide'],
+    ['phone', 'Phone'], ['whatsapp', 'WhatsApp number, in full (2547…)'], ['email', 'Email'],
+    ['location', 'Office or shop location'], ['postal', 'Postal address'], ['hours', 'Opening hours'],
+    ['year_registered', 'Year registered'], ['reg_no', 'Registration number'], ['kra_pin', 'KRA PIN'], ['directors', 'Directors'],
+    ['services', 'Services (one per line)', 'wide'], ['about', 'About the company', 'wide']
+  ];
+  function companyDetails(main){
+    const c = coRow();
+    main.innerHTML = `
+      <div class="p-head"><h1>Company details${coLabel()}</h1><button class="btn btn-navy btn-sm" type="submit" form="settings-form">Save changes</button></div>
+      <p class="muted">Shown on this company’s page on the website${c.published ? '' : ' once it is switched on under <b>Companies</b>'}. Leave the phone, WhatsApp or email empty to use Kanam’s. Anything in [square brackets] shows highlighted as a placeholder.</p>
+      <form id="settings-form" class="settings">${CO_FIELDS.map(([key, label, wide]) => {
+        const long = wide === 'wide' && key !== 'what';
+        return `<label class="${wide || ''}">${esc(label)}${long ? `<textarea name="${key}" rows="4">${esc(c[key] || '')}</textarea>` : `<input name="${key}" value="${esc(c[key] || '')}"${key === 'name' ? ' required' : ''}>`}</label>`;
+      }).join('')}</form>`;
+    const f = $('settings-form');
+    const mark = el => el.classList.toggle('is-ph', isPlaceholder(el.value));
+    f.querySelectorAll('input,textarea').forEach(el => { mark(el); el.oninput = () => mark(el); });
+    f.onsubmit = async e => {
+      e.preventDefault();
+      const patch = Object.fromEntries(CO_FIELDS.map(([key]) => [key, f[key].value.trim()]));
+      patch.updated_at = new Date().toISOString();
+      const { error } = await db.from('companies').update(patch).eq('id', c.id);
+      if (error){ toast('Not saved: ' + error.message); return; }
+      await loadCompanies();
+      toast('Saved');
+    };
+  }
+
   VIEWS.settings = async main => {
+    if (grouped() && co !== 'kanam' && coRow()) return companyDetails(main);
     const { data, error } = await db.from('settings').select('key,value');
     if (error) throw error;
     const saved = {};
     (data || []).forEach(r => { saved[r.key] = r.value; });
     main.innerHTML = `
-      <div class="p-head"><h1>Company details</h1><button class="btn btn-navy btn-sm" type="submit" form="settings-form">Save changes</button></div>
+      <div class="p-head"><h1>Company details${coLabel()}</h1><button class="btn btn-navy btn-sm" type="submit" form="settings-form">Save changes</button></div>
       <p class="muted">Shown in the header, footer, contact pages and elsewhere. Anything left in [square brackets] appears highlighted on the site as a placeholder.</p>
       <form id="settings-form" class="settings">${FIELDS.map(([key, label, wide]) => {
         const v = saved[key] != null && saved[key] !== '' ? saved[key] : D.settings[key] || '';
@@ -1894,8 +1992,8 @@
   }
   async function loadProfile(){
     const [docs, items] = await Promise.all([
-      db.from('company_docs').select('*').order('created_at'),
-      db.from('company_profile').select('*')
+      byCo(db.from('company_docs').select('*')).order('created_at'),
+      byCo(db.from('company_profile').select('*'))
     ]);
     if (docs.error) throw docs.error;
     if (items.error) throw items.error;
@@ -1961,13 +2059,11 @@
     }
     signed = {};
     await signAll(profile.docs);
-    const { data: set } = await db.from('settings').select('key,value');
-    const S = Object.assign({}, D.settings);
-    (set || []).forEach(r => { if (r.value) S[r.key] = r.value; });
+    const S = await companyFacts();
     const known = v => v && !isPlaceholder(v);
     main.innerHTML = `
       <div class="p-head">
-        <h1>Company profile</h1>
+        <h1>Company profile${coLabel()}</h1>
         <div class="p-tools"><button class="btn btn-sm btn-navy" type="button" id="doc-zip">Download all (ZIP)</button></div>
       </div>
       <div class="panel-box profile-head">
@@ -1980,6 +2076,16 @@
     $('doc-zip').onclick = downloadZip;
     drawProfile();
   };
+
+  // Name, contacts and registration of the company on the switcher.
+  async function companyFacts(){
+    const c = coRow();
+    if (grouped() && co !== 'kanam' && c) return { company: c.name, email: c.email, phone: c.phone, postal: c.postal, reg_no: c.reg_no, kra_pin: c.kra_pin };
+    const { data: set } = await db.from('settings').select('key,value');
+    const S = Object.assign({}, D.settings);
+    (set || []).forEach(r => { if (r.value) S[r.key] = r.value; });
+    return S;
+  }
 
   function drawProfile(){
     const { docs, items } = profile;
@@ -2012,7 +2118,8 @@
       const na = card.querySelector('[data-na]');
       if (na) na.onchange = async () => {
         const row = { key: sec.key, not_applicable: na.checked, updated_at: new Date().toISOString() };
-        const { error } = await db.from('company_profile').upsert([row], { onConflict: 'key' });
+        if (grouped()) row.company = co;
+        const { error } = await db.from('company_profile').upsert([row], { onConflict: grouped() ? 'company,key' : 'key' });
         if (error){ toast('Not saved: ' + error.message); na.checked = !na.checked; return; }
         profile.items[sec.key] = Object.assign(profile.items[sec.key] || {}, row);
         drawProfile();
@@ -2049,11 +2156,14 @@
       toast(files.length > 1 ? `Uploading ${i + 1} of ${files.length}…` : 'Uploading…');
       try {
         const ext = extOf(file.name) || 'pdf';
-        const path = `${sec.key}/${crypto.randomUUID()}.${ext}`;
+        // Kanam's files stay where they were; the other companies' get their own folder.
+        const path = `${grouped() && co !== 'kanam' ? co + '/' : ''}${sec.key}/${crypto.randomUUID()}.${ext}`;
         const up = await db.storage.from(PROFILE_BUCKET).upload(path, file, { contentType: file.type || undefined, upsert: false });
         if (up.error) throw /mime|type/i.test(up.error.message) ? new Error('only PDFs, photos, Word and Excel files can be uploaded') : /size|large/i.test(up.error.message) ? new Error('the file is over 25 MB') : up.error;
         const title = sec.docs.length === 1 ? sec.docs[0] : file.name.replace(/\.[^.]+$/, '').replace(/[_-]+/g, ' ').trim();
-        const { data, error } = await db.from('company_docs').insert([{ section: sec.key, title, path, name: file.name, mime: file.type, size: file.size }]).select().single();
+        const doc = { section: sec.key, title, path, name: file.name, mime: file.type, size: file.size };
+        if (grouped()) doc.company = co;
+        const { data, error } = await db.from('company_docs').insert([doc]).select().single();
         if (error){ await db.storage.from(PROFILE_BUCKET).remove([path]); throw error; }
         profile.docs.push(data);
         added.push(data);
@@ -2168,7 +2278,7 @@
       const blob = await zip.generateAsync({ type: 'blob' });
       const a = document.createElement('a');
       a.href = URL.createObjectURL(blob);
-      a.download = `Kanam Logistics - company profile - ${new Date().toISOString().slice(0, 10)}.zip`;
+      a.download = `${fileSafe(coName())} - company profile - ${new Date().toISOString().slice(0, 10)}.zip`;
       a.click();
       setTimeout(() => URL.revokeObjectURL(a.href), 2000);
       toast(`Downloaded ${docs.length} files`);
@@ -2180,7 +2290,7 @@
   const TABLE_TEXT = { content: 'page text', media: 'photo', posts: 'news post', testimonials: 'testimonial', faqs: 'FAQ', team: 'team member',
     projects: 'project', products: 'product', settings: 'company detail', staff: 'staff member', inquiries: 'inquiry',
     company_docs: 'profile document', company_profile: 'profile item', rice_batches: 'rice batch', rice_sales: 'rice sale', equipment: 'machine',
-    road_projects: 'road project', road_costs: 'road cost' };
+    road_projects: 'road project', road_costs: 'road cost', companies: 'company' };
   function describe(a){
     const r = a.after || a.before || {};
     const name = r.title || r.name || r.buyer || r.item || r.question || r.key || r.email || r.path || '';

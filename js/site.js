@@ -1,6 +1,7 @@
 /* The public site: header, footer and WhatsApp button on every page, the
    company details ([data-s] elements), the rice products, the projects,
-   and the order / quote form. Content comes from Supabase when it is
+   the sister companies (companies.html, shown once each is switched on in
+   the portal) and the order / quote form. Content comes from Supabase when it is
    connected (js/config.js), otherwise from the defaults in js/data.js. */
 (function(){
   const D = window.KANAM_DEFAULTS;
@@ -22,6 +23,8 @@
   let projects = D.projects.slice();
   let equipment = (D.equipment || []).slice();
   let faqs = (D.faqs || []).slice(), testimonials = [], team = [], posts = [];
+  let companies = [];               // published companies, Kanam first; empty before sql/07-companies.sql
+  const sisters = () => companies.filter(c => c.id !== 'kanam');
   let C = {};                       // edited page text from the CMS, by data-c key
   let loaded = !db;                 // false until Supabase has answered
   const md = s => window.KanamMD ? KanamMD.render(s) : esc(s);
@@ -53,7 +56,7 @@
             <span><b>Kanam</b> Logistics<small>Limited</small></span>
           </a>
           <button class="menu-btn" type="button" aria-expanded="false" aria-controls="site-nav">Menu</button>
-          <nav id="site-nav" class="site-nav" aria-label="Main">${nav}<a class="btn btn-sm" href="contact.html#quote">Get a quote</a></nav>
+          <nav id="site-nav" class="site-nav" aria-label="Main">${nav}<a href="companies.html" data-group-link hidden${here === 'companies.html' ? ' aria-current="page"' : ''}>Our companies</a><a class="btn btn-sm" href="contact.html#quote">Get a quote</a></nav>
         </div>
       </header>`);
     document.body.insertAdjacentHTML('beforeend', `
@@ -66,6 +69,7 @@
           <div>
             <h3>Company</h3>
             <ul>${PAGES.map(([href, label]) => `<li><a href="${href}">${label}</a></li>`).join('')}</ul>
+            <div data-group-link hidden><h3 style="margin-top:18px">Our companies</h3><ul data-company-links></ul></div>
           </div>
           <div>
             <h3>Contact</h3>
@@ -106,7 +110,7 @@
   async function load(){
     if (!db) return;
     const needPosts = document.querySelector('[data-news]');
-    const [s, p, j, c, f, t, m, n, e] = await Promise.all([
+    const [s, p, j, c, f, t, m, n, e, g] = await Promise.all([
       db.from('settings').select('key,value'),
       db.from('products').select('*').eq('published', true).order('sort').order('size_kg'),
       db.from('projects').select('*').eq('published', true).order('sort').order('created_at', { ascending: false }),
@@ -116,7 +120,8 @@
       db.from('team').select('*').eq('published', true).order('sort'),
       needPosts ? db.from('posts').select('id,slug,title,excerpt,body,cover_path,published_at,author_name').eq('status', 'published')
         .lte('published_at', new Date().toISOString()).order('published_at', { ascending: false }).limit(100) : { data: [] },
-      db.from('equipment').select('*').eq('published', true).order('sort').order('name')
+      db.from('equipment').select('*').eq('published', true).order('sort').order('name'),
+      db.from('companies').select('*').eq('published', true).order('sort').order('name')
     ]);
     if (!s.error) (s.data || []).forEach(r => { if (r.value) S[r.key] = r.value; });
     if (!p.error && p.data && p.data.length) products = p.data;
@@ -127,8 +132,9 @@
     if (!m.error) team = m.data || [];
     if (!n.error) posts = n.data || [];
     if (!e.error && e.data && e.data.length) equipment = e.data;
+    if (!g.error) companies = g.data || [];
     // Tables added by sql/02-cms.sql may not exist yet: the defaults stand in.
-    [s, p, j, c, f, t, m, n, e].forEach(r => { if (r.error) console.warn('Kanam: using default content –', r.error.message); });
+    [s, p, j, c, f, t, m, n, e, g].forEach(r => { if (r.error) console.warn('Kanam: using default content –', r.error.message); });
   }
 
   // Page text edited in the portal replaces the text written in the HTML.
@@ -206,7 +212,7 @@
         <div class="project-img">${img ? `<img src="${esc(img)}" alt="${esc(p.title)}" loading="lazy">`
           : `<div class="img-ph"><span>Photo: ${esc(p.title.replace(/\[|\]/g, ''))}</span></div>`}</div>
         <div class="project-body">
-          <span class="tag">${esc(p.category)}</span>
+          <span class="tag">${esc(p.category)}</span>${p.company && p.company !== 'kanam' && companies.some(c => c.id === p.company) ? ` <span class="tag tag-co">${esc(coShort(p.company))}</span>` : ''}
           <h3>${show(p.title)}</h3>
           <p class="meta">${[p.client, p.location, p.year].filter(Boolean).map(show).join(' · ')}</p>
           <p>${show(p.description)}</p>
@@ -228,6 +234,75 @@
         $$('.project').forEach(card => { card.hidden = b.dataset.cat !== 'all' && card.dataset.cat !== b.dataset.cat; });
       };
     }
+  }
+
+  /* ------------------------------ The group ------------------------------ */
+  const coShort = id => { const c = companies.find(x => x.id === id); return c ? c.short_name || c.name : ''; };
+  // What a company's "Get a quote" asks for.
+  const CO_KIND = { glassmart: 'Hardware & glass', techpride: 'Road works' };
+  const lines = t => String(t || '').split('\n').map(x => x.trim()).filter(Boolean);
+  const initials = c => (c.short_name || c.name).split(/\s+/).map(w => w[0]).join('').slice(0, 2).toUpperCase();
+  const coLogo = c => { const img = imgUrl(c.logo_path); return img ? `<img src="${esc(img)}" alt="" loading="lazy">` : `<span>${esc(initials(c))}</span>`; };
+
+  function companyCard(c){
+    const kanam = c.id === 'kanam';
+    return `
+      <article class="co-card">
+        <div class="co-logo">${kanam ? '<img src="img/logo.svg" alt="">' : coLogo(c)}</div>
+        <div>
+          <h3>${esc(kanam ? S.company : c.name)}</h3>
+          <p>${show(c.what)}</p>
+          <a class="more" href="${kanam ? 'about.html' : 'companies.html?c=' + encodeURIComponent(c.id)}">${kanam ? 'About Kanam' : 'Find out more'} →</a>
+        </div>
+      </article>`;
+  }
+
+  function renderCompanies(){
+    const any = sisters().length > 0;
+    $$('[data-group-link]').forEach(el => { el.hidden = !any; });
+    $$('[data-company-links]').forEach(ul => { ul.innerHTML = sisters().map(c => `<li><a href="companies.html?c=${encodeURIComponent(c.id)}">${esc(c.short_name || c.name)}</a></li>`).join(''); });
+    $$('[data-companies]').forEach(box => {
+      box.innerHTML = any ? companies.map(companyCard).join('') : '';
+      showSection(box, any);
+    });
+    const page = $('#company');
+    if (!page) return;
+    const want = new URLSearchParams(location.search).get('c');
+    const listing = $('#companies-listing'), wrap = page.closest('section');
+    if (!want){ wrap.hidden = true; if (listing) listing.hidden = false; return; }
+    if (listing) listing.hidden = true;
+    wrap.hidden = false;
+    const c = sisters().find(x => x.id === want);
+    if (!c){ page.innerHTML = !loaded ? '<p class="muted">Loading…</p>' : '<h1>Company not found</h1><p><a href="companies.html">← Our companies</a></p>'; return; }
+    document.title = c.name + ' – a Kanam Logistics company';
+    const phone = c.phone || S.phone, email = c.email || S.email;
+    const mine = projects.filter(p => p.company === c.id);
+    const reg = [c.reg_no && 'Reg. no. ' + c.reg_no, c.kra_pin && 'KRA PIN ' + c.kra_pin, c.year_registered && 'Since ' + c.year_registered].filter(Boolean);
+    page.innerHTML = `
+      <p><a href="companies.html">← Our companies</a></p>
+      <div class="co-head">
+        <div class="co-logo co-logo-lg">${coLogo(c)}</div>
+        <div><span class="eyebrow">A Kanam Logistics company</span><h1>${esc(c.name)}</h1><p class="lead">${show(c.what)}</p></div>
+      </div>
+      <div class="grid grid-2 co-body">
+        <div>
+          ${c.about ? `<h2>About</h2>${lines(c.about).map(t => `<p>${show(t)}</p>`).join('')}` : ''}
+          ${lines(c.services).length ? `<h2>What we do</h2><ul class="ticks">${lines(c.services).map(t => `<li>${show(t)}</li>`).join('')}</ul>` : ''}
+          <p class="hero-actions"><a class="btn" href="contact.html?company=${encodeURIComponent(c.id)}${CO_KIND[c.id] ? '&kind=' + encodeURIComponent(CO_KIND[c.id]) : ''}#quote">Get a quote</a></p>
+        </div>
+        <aside class="card co-contact">
+          <h3>Contact</h3>
+          <ul>
+            ${phone ? `<li><a href="${isPlaceholder(phone) ? '#' : 'tel:' + esc(phone.replace(/[^\d+]/g, ''))}">${show(phone)}</a></li>` : ''}
+            ${email ? `<li><a href="${isPlaceholder(email) ? '#' : 'mailto:' + esc(email)}">${show(email)}</a></li>` : ''}
+            ${c.location ? `<li>${show(c.location)}</li>` : ''}
+            ${c.postal ? `<li>${show(c.postal)}</li>` : ''}
+            ${c.hours ? `<li>${show(c.hours)}</li>` : ''}
+          </ul>
+          ${reg.length ? `<h3>Registered</h3><ul>${reg.map(t => `<li>${show(t)}</li>`).join('')}</ul>` : ''}
+        </aside>
+      </div>
+      ${mine.length ? `<h2 style="margin-top:40px">Projects</h2><div class="projects co-projects">${mine.map(projectCard).join('')}</div>` : ''}`;
   }
 
   /* ------------------------------ FAQs, testimonials, team, news ------------------------------ */
@@ -329,11 +404,16 @@
     if (!f) return;
     f.product.innerHTML = '<option value="">Choose a bag size</option>' +
       products.filter(p => p.in_stock !== false).map(p => `<option>${esc(productName(p))}</option>`).join('');
+    // "Hardware & glass" goes to Nyamasaria Glassmart, so it is offered only once that company is on the site.
+    const hw = [...f.kind.options].find(o => o.value === 'Hardware & glass');
+    if (hw) hw.hidden = hw.disabled = !companies.some(c => c.id === 'glassmart');
     if (f.machine) f.machine.innerHTML = '<option value="">Choose a machine</option>' +
       equipment.map(m => `<option>${esc(m.name)}</option>`).join('');
     const params = new URLSearchParams(location.search);
     const want = params.get('kind'), wantProduct = params.get('product'), wantMachine = params.get('machine');
-    if (want && [...f.kind.options].some(o => o.value === want)) f.kind.value = want;
+    if (want && [...f.kind.options].some(o => o.value === want && !o.disabled)) f.kind.value = want;
+    const wantCo = params.get('company');
+    f.dataset.company = companies.some(c => c.id === wantCo) ? wantCo : '';
     if (wantProduct && [...f.product.options].some(o => o.value === wantProduct)){ f.kind.value = 'Rice order'; f.product.value = wantProduct; }
     if (wantMachine && f.machine && [...f.machine.options].some(o => o.value === wantMachine)){ f.kind.value = 'Machinery hire'; f.machine.value = wantMachine; }
     f.kind.onchange = toggleKind;
@@ -341,7 +421,7 @@
 
     const note = $('#quote-status');
     const message = row => [
-      `Hello Kanam Logistics, this is ${row.name} (${row.phone}${row.email ? ', ' + row.email : ''}).`,
+      `Hello ${row.company && row.company !== 'kanam' ? coShort(row.company) : 'Kanam Logistics'}, this is ${row.name} (${row.phone}${row.email ? ', ' + row.email : ''}).`,
       row.kind === 'Rice order' ? `I'd like to order: ${row.product || 'rice'}${row.quantity ? ' × ' + row.quantity : ''}.`
         : row.kind === 'Machinery hire' ? `I'd like to hire: ${row.product || 'a machine'}${row.quantity ? ', for ' + row.quantity : ''}.` : `Enquiry: ${row.kind}.`,
       row.message
@@ -356,6 +436,9 @@
         quantity: f.kind.value === 'Rice order' ? f.quantity.value.trim() : f.kind.value === 'Machinery hire' && f.hire_for ? f.hire_for.value.trim() : '',
         message: f.message.value.trim()
       };
+      // Which company it is for: the one whose page sent them here, else by what they asked for.
+      if (companies.length) row.company = f.dataset.company || (row.kind === 'Hardware & glass' ? 'glassmart' : 'kanam');
+      const to = row.company && row.company !== 'kanam' ? coShort(row.company) : '';
       const wa = waLink(message(row));
       const waBtn = wa ? ` <a class="btn btn-sm btn-wa" href="${esc(wa)}" target="_blank" rel="noopener">Also send on WhatsApp</a>` : '';
       const button = f.querySelector('[type=submit]');
@@ -367,7 +450,7 @@
         if (!error){
           f.reset(); toggleKind();
           note.classList.add('ok');
-          note.innerHTML = `Thank you, ${esc(row.name)}. We have your ${row.kind === 'Rice order' ? 'order' : 'request'} and will call you on ${esc(row.phone)} soon.${waBtn}`;
+          note.innerHTML = `Thank you, ${esc(row.name)}. ${to ? esc(to) + ' has' : 'We have'} your ${row.kind === 'Rice order' ? 'order' : 'request'} and will call you on ${esc(row.phone)} soon.${waBtn}`;
           return;
         }
         console.warn('Kanam: inquiry not saved –', error.message);
@@ -383,7 +466,7 @@
   }
 
   /* ------------------------------ Start ------------------------------ */
-  function renderAll(){ applyContent(); fill(); renderProducts(); renderEquipment(); renderProjects(); renderFaqs(); renderTestimonials(); renderTeam(); renderNews(); form(); }
+  function renderAll(){ applyContent(); fill(); renderProducts(); renderEquipment(); renderProjects(); renderCompanies(); renderFaqs(); renderTestimonials(); renderTeam(); renderNews(); form(); }
   layout();
   renderAll();
   load().then(() => { loaded = true; renderAll(); })
