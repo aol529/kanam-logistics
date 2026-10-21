@@ -2151,7 +2151,7 @@
     $('profile-summary').innerHTML = `<b>${counts.ready + counts.na} of ${total}</b> ready`
       + [['missing', 'missing'], ['expired', 'expired'], ['soon', 'to renew soon']].filter(([k]) => counts[k]).map(([k, t]) => ` <span class="pill st-${k}">${counts[k]} ${t}</span>`).join('');
 
-    $('doc-cards').querySelectorAll('.doc-card').forEach(card => {
+    $('doc-cards').querySelectorAll('.doc-card[data-sec]').forEach(card => {
       const sec = secOf(card.dataset.sec);
       card.querySelector('[data-upload]').onchange = e => uploadDocs(sec, [...e.target.files]);
       const na = card.querySelector('[data-na]');
