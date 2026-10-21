@@ -225,6 +225,9 @@
 
   /* ================================ Generic lists & editor ================================ */
   // Field types: text, textarea, number, select, checkbox, image, markdown, datetime, slug, rating.
+  // The kinds of tender checklist a company can have (items: CHECKLISTS, under Company profile).
+  const CHECKLIST_TYPES = { contractor: 'Contractor (roads & construction)', food: 'Food supplier (eggs & produce)', general: 'General supplier' };
+
   const RESOURCES = {
     products: {
       table: 'products', single: 'product', order: [['sort'], ['size_kg']],
@@ -293,11 +296,12 @@
         { name: 'id', label: 'Short code', type: 'slug', from: 'name', half: true, help: 'Used in web addresses: companies.html?c=… Lowercase words and dashes.' },
         { name: 'short_name', label: 'Short name', type: 'text', half: true, placeholder: 'e.g. Techpride Ventures' },
         { name: 'what', label: 'What it does (one line)', type: 'text' },
+        { name: 'checklist', label: 'Tender checklist', type: 'select', options: Object.entries(CHECKLIST_TYPES), help: 'Which documents its Company profile asks for. You can add your own items there too.' },
         { name: 'logo_path', label: 'Logo or photo', type: 'image' },
         { name: 'published', label: 'Show on the website', type: 'checkbox', inline: true },
         { name: 'sort', label: 'Order', type: 'number', inline: true, step: '1' }
       ],
-      defaults: list => ({ published: false, sort: list.length + 1 }),
+      defaults: list => ({ published: false, sort: list.length + 1, checklist: 'contractor' }),
       beforeSave: (row, existing) => {
         row.id = slugify(row.id || row.name);
         if (!row.id) throw new Error('Give the company a name.');
@@ -1950,7 +1954,9 @@
   /* ---------------- Company profile (tender documents) ---------------- */
   // The checklist. "docs" are the usual documents for each item; they are
   // offered as names when a file is uploaded.
-  const PROFILE_SECTIONS = [
+  // Every checklist item a company can have. Which ones it gets depends on
+  // its checklist type (CHECKLISTS below), plus any items added by hand.
+  const SECTIONS = Object.fromEntries([
     { key: 'incorporation', title: 'Certificate of incorporation', docs: ['Certificate of incorporation'] },
     { key: 'cr12', title: 'CR12', docs: ['CR12'], hint: 'Tenders usually want one issued in the last 12 months.' },
     { key: 'kra', title: 'KRA PIN & tax compliance (TCC)', docs: ['Company KRA PIN certificate', 'Company TCC', 'Director KRA PIN certificate', 'Director TCC'], hint: 'Personal and company. A TCC lasts 12 months, so add its expiry date.' },
@@ -1963,8 +1969,29 @@
     { key: 'bank', title: 'Bank: account statement', docs: ['Bank statement', 'Bank reference letter'], hint: 'Usually the last 6 or 12 months.' },
     { key: 'audited', title: 'Audited accounts', docs: ['Audited accounts'], hint: 'Usually the last 2 or 3 years, one file per year.' },
     { key: 'experience', title: 'Past experience (last 3 years)', docs: ['Contract / LPO', 'Completion certificate', 'Recommendation letter'], hint: 'Contracts, LPOs and completion certificates for similar work.' },
+    { key: 'health', title: 'Public health licence', docs: ['Public health licence', 'Food hygiene certificate'], hint: 'From the county public health office. Renewed every year.' },
+    { key: 'handlers', title: 'Food handlers\' medical certificates', docs: ['Food handler medical certificate'], hint: 'One for everyone who handles the food. Valid for 6 months.' },
+    { key: 'vet', title: 'Veterinary & movement permits', docs: ['Livestock movement permit', 'Veterinary inspection certificate'], hint: 'From the county veterinary office, for moving eggs or birds between counties.' },
+    { key: 'farms', title: 'Supplier & farm agreements', docs: ['Farm supply agreement', 'Letter from the farm'], hint: 'Shows where the produce comes from and that supply is steady.' },
     { key: 'other', title: 'Other documents', docs: ['Company profile', 'Other'] }
-  ];
+  ].map(sec => [sec.key, sec]));
+  const CHECKLISTS = {
+    contractor: { keys: ['incorporation', 'cr12', 'kra', 'directors', 'trade', 'nca', 'authority', 'agpo', 'litigation', 'bank', 'audited', 'experience'] },
+    food: { keys: ['incorporation', 'cr12', 'kra', 'directors', 'trade', 'health', 'handlers', 'vet', 'farms', 'authority', 'agpo', 'litigation', 'bank', 'audited', 'experience'] },
+    general: { keys: ['incorporation', 'cr12', 'kra', 'directors', 'trade', 'authority', 'agpo', 'litigation', 'bank', 'audited', 'experience'] }
+  };
+  // The current company's checklist: its type's items, the ones added by
+  // hand (company_profile rows marked custom), then Other documents.
+  let PROFILE_SECTIONS = buildSections({});
+  function buildSections(items){
+    const kind = CHECKLISTS[(coRow() || {}).checklist] || CHECKLISTS.contractor;
+    const own = Object.values(items).filter(r => r.custom).sort((a, b) => (a.sort || 0) - (b.sort || 0))
+      .map(r => ({ key: r.key, title: r.title || 'Untitled', docs: r.title ? [r.title] : [], hint: r.hint || '', custom: true }));
+    return [...kind.keys.map(k => SECTIONS[k]), ...own, SECTIONS.other];
+  }
+  // A file under an item this company's checklist doesn't have (say NCA, after
+  // switching to the food checklist) shows under Other documents.
+  const inSec = (d, sec) => d.section === sec.key || (sec.key === 'other' && !PROFILE_SECTIONS.some(s => s.key === d.section));
   const PROFILE_BUCKET = 'profile';
   const DOC_TYPES = '.pdf,image/jpeg,image/png,image/webp,image/heic,.doc,.docx,.xls,.xlsx';
   const secOf = key => PROFILE_SECTIONS.find(s => s.key === key) || PROFILE_SECTIONS[PROFILE_SECTIONS.length - 1];
@@ -1997,13 +2024,15 @@
     ]);
     if (docs.error) throw docs.error;
     if (items.error) throw items.error;
-    return { docs: docs.data || [], items: Object.fromEntries((items.data || []).map(r => [r.key, r])) };
+    const byKey = Object.fromEntries((items.data || []).map(r => [r.key, r]));
+    PROFILE_SECTIONS = buildSections(byKey);
+    return { docs: docs.data || [], items: byKey };
   }
   // For the dashboard: how many checklist items need attention (null if not set up yet).
   async function profileStatus(){
     try {
       const { docs, items } = await loadProfile();
-      const todo = PROFILE_SECTIONS.filter(sec => ['missing', 'expired', 'soon'].includes(sectionState(sec, docs.filter(d => d.section === sec.key), docs, items[sec.key])[0])).length;
+      const todo = PROFILE_SECTIONS.filter(sec => ['missing', 'expired', 'soon'].includes(sectionState(sec, docs.filter(d => inSec(d, sec)), docs, items[sec.key])[0])).length;
       return { todo };
     } catch (e){ return null; }
   }
@@ -2091,7 +2120,7 @@
     const { docs, items } = profile;
     const counts = { ready: 0, missing: 0, expired: 0, soon: 0, na: 0 };
     $('doc-cards').innerHTML = PROFILE_SECTIONS.map(sec => {
-      const mine = docs.filter(d => d.section === sec.key);
+      const mine = docs.filter(d => inSec(d, sec));
       const item = items[sec.key];
       const [st, label] = sectionState(sec, mine, docs, item);
       if (st in counts) counts[st]++;
@@ -2104,11 +2133,21 @@
         ${mine.length ? `<div class="doc-files">${mine.map(d => docTile(d, docs)).join('')}</div>` : ''}
         <div class="doc-actions">
           <label class="btn btn-sm btn-quiet file-btn">Upload <input type="file" accept="${DOC_TYPES}" multiple hidden data-upload></label>
+          ${sec.custom ? '<button type="button" class="btn-text danger" data-remove>Remove item</button>' : ''}
           ${sec.key === 'other' ? '' : `<label class="check small"><input type="checkbox" data-na${item && item.not_applicable ? ' checked' : ''}> Not applicable</label>`}
         </div>
       </section>`;
-    }).join('');
+    }).join('') + `
+      <form class="doc-card doc-add" id="doc-add">
+        <h2>Add a checklist item</h2>
+        <p class="muted small">For a document this checklist doesn't list, e.g. a KEBS permit or insurance cover. It shows as missing until a file is uploaded.</p>
+        <input name="title" maxlength="120" placeholder="e.g. Public liability insurance" required>
+        <input name="hint" maxlength="200" placeholder="Note (optional), e.g. Renewed every March">
+        <div class="doc-actions"><span class="muted small" id="doc-add-error"></span><button type="submit" class="btn btn-sm btn-navy">Add item</button></div>
+      </form>`;
+    $('doc-add').onsubmit = addItem;
     const total = PROFILE_SECTIONS.length - 1;
+    // (Other documents never counts towards "ready".)
     $('profile-summary').innerHTML = `<b>${counts.ready + counts.na} of ${total}</b> ready`
       + [['missing', 'missing'], ['expired', 'expired'], ['soon', 'to renew soon']].filter(([k]) => counts[k]).map(([k, t]) => ` <span class="pill st-${k}">${counts[k]} ${t}</span>`).join('');
 
@@ -2116,6 +2155,8 @@
       const sec = secOf(card.dataset.sec);
       card.querySelector('[data-upload]').onchange = e => uploadDocs(sec, [...e.target.files]);
       const na = card.querySelector('[data-na]');
+      const rm = card.querySelector('[data-remove]');
+      if (rm) rm.onclick = () => removeItem(sec, rm);
       if (na) na.onchange = async () => {
         const row = { key: sec.key, not_applicable: na.checked, updated_at: new Date().toISOString() };
         if (grouped()) row.company = co;
@@ -2136,6 +2177,37 @@
       if (kind === 'pdf') queue.push(() => renderPdf(url, t, { width: 120, pages: 1 }).then(() => t.classList.add('drawn')));
     });
     (async () => { for (const job of queue){ try { await job(); } catch (e) {} } })();
+  }
+
+  async function addItem(e){
+    e.preventDefault();
+    const f = e.target, title = f.title.value.trim();
+    if (!title) return;
+    const row = { key: 'x-' + crypto.randomUUID().slice(0, 8), title, hint: f.hint.value.trim(), custom: true,
+      sort: Math.max(0, ...Object.values(profile.items).filter(r => r.custom).map(r => r.sort || 0)) + 1, updated_at: new Date().toISOString() };
+    if (grouped()) row.company = co;
+    const { data, error } = await db.from('company_profile').insert([row]).select().single();
+    if (error){
+      $('doc-add-error').textContent = /column|schema cache/.test(error.message) ? 'Run sql/08-checklists.sql in Supabase first.' : error.message;
+      return;
+    }
+    profile.items[data.key] = data;
+    PROFILE_SECTIONS = buildSections(profile.items);
+    drawProfile();
+    toast(`Added “${title}”`);
+  }
+
+  async function removeItem(sec, btn){
+    if (profile.docs.some(d => d.section === sec.key)){ toast('Move or delete its files first'); return; }
+    if (!armed(btn)) return;
+    let q = db.from('company_profile').delete().eq('key', sec.key);
+    if (grouped()) q = q.eq('company', co);
+    const { error } = await q;
+    if (error){ toast('Not removed: ' + error.message); return; }
+    delete profile.items[sec.key];
+    PROFILE_SECTIONS = buildSections(profile.items);
+    drawProfile();
+    toast('Removed');
   }
 
   function docTile(d, all){
@@ -2256,7 +2328,7 @@
   // Every current document in one ZIP, in checklist order, ready to attach to a tender.
   async function downloadZip(){
     const btn = $('doc-zip');
-    const docs = PROFILE_SECTIONS.flatMap(sec => profile.docs.filter(d => d.section === sec.key && docState(d, profile.docs) !== 'replaced'));
+    const docs = PROFILE_SECTIONS.flatMap(sec => profile.docs.filter(d => inSec(d, sec) && docState(d, profile.docs) !== 'replaced'));
     if (!docs.length){ toast('Nothing uploaded yet'); return; }
     btn.disabled = true;
     try {

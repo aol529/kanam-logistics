@@ -35,7 +35,7 @@ Anything in `[square brackets]` is a placeholder and shows **highlighted in yell
 ## Setup
 
 1. Create a Supabase project and put its URL and publishable key in `js/config.js`.
-2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`, then `sql/03-profile.sql`, then `sql/04-ledger.sql`, then `sql/05-equipment.sql`, then `sql/06-roads.sql`, then `sql/07-companies.sql`.
+2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`, then `sql/03-profile.sql`, then `sql/04-ledger.sql`, then `sql/05-equipment.sql`, then `sql/06-roads.sql`, then `sql/07-companies.sql`, then `sql/08-checklists.sql`.
 3. Authentication → Users → **Add user** (your email and a password, tick Auto Confirm). Then in the SQL editor:
    `insert into public.staff (user_id, email, name, role) select id, email, 'Your name', 'admin' from auth.users where email = 'you@example.com';`
    (Later staff are added from the portal's Staff page.)
