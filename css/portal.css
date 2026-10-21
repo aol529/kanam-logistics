@@ -186,6 +186,12 @@ code{background:var(--surface-2);padding:1px 5px;border-radius:4px;font-size:.92
 .pill.st-missing,.pill.st-soon{background:#fdf1dc;color:#8a5a0f;}
 .pill.st-expired{background:#f1e4e2;color:var(--err);}
 .doc-files{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:10px;}
+.doc-tile-wrap{position:relative;min-width:0;}
+.doc-tile-wrap .doc-tile{width:100%;}
+.doc-dl{position:absolute;top:6px;right:6px;width:28px;height:28px;padding:0;border:1px solid var(--line);border-radius:50%;background:var(--surface);color:var(--navy);display:grid;place-items:center;cursor:pointer;box-shadow:0 1px 3px rgba(0,0,0,.15);}
+.doc-dl svg{width:15px;height:15px;}
+.doc-dl:hover,.doc-dl:focus-visible{background:var(--navy);color:#fff;border-color:var(--navy);}
+.doc-dl:disabled{opacity:.5;cursor:wait;}
 .doc-tile{all:unset;box-sizing:border-box;cursor:pointer;display:grid;gap:3px;min-width:0;}
 .doc-tile:hover .doc-thumb,.doc-tile:focus-visible .doc-thumb{border-color:var(--navy);}
 .doc-thumb{position:relative;aspect-ratio:3/4;border:1px solid var(--line);border-radius:8px;background:var(--surface-2) center/cover;overflow:hidden;display:grid;place-items:center;}

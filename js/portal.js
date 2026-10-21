@@ -2166,6 +2166,7 @@
         drawProfile();
       };
       card.querySelectorAll('.doc-tile').forEach(b => { b.onclick = () => openDoc(profile.docs.find(d => d.id === b.dataset.id)); });
+      card.querySelectorAll('.doc-dl').forEach(b => { b.onclick = () => downloadDoc(profile.docs.find(d => d.id === b.dataset.dl), b); });
     });
     // Thumbnails: photos straight away, PDFs one at a time.
     const queue = [];
@@ -2214,11 +2215,11 @@
     const st = docState(d, all), n = daysTo(d.expires_on);
     const sub = d.expires_on ? (n < 0 ? `Expired ${day(d.expires_on)}` : `Expires ${day(d.expires_on)}`)
       : d.issued_on ? `Issued ${day(d.issued_on)}` : day(d.created_at);
-    return `<button type="button" class="doc-tile" data-id="${d.id}" title="${esc(d.name)}">
+    return `<div class="doc-tile-wrap"><button type="button" class="doc-tile" data-id="${d.id}" title="${esc(d.name)}">
       <span class="doc-thumb kind-${docKind(d)}" data-id="${d.id}"><span class="doc-ext">${esc(extOf(d.name).toUpperCase() || 'FILE')}</span></span>
       <span class="doc-title">${esc(d.title || d.name)}</span>
       <span class="doc-sub${st === 'expired' ? ' is-err' : st === 'soon' ? ' is-warn' : ''}">${esc(sub)}${st === 'replaced' ? ' · replaced' : ''}</span>
-    </button>`;
+    </button><button type="button" class="doc-dl" data-dl="${d.id}" title="Download" aria-label="Download ${esc(d.title || d.name)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></button></div>`;
   }
 
   async function uploadDocs(sec, files){
@@ -2299,6 +2300,19 @@
     const sec = secOf(d.section);
     return `${String(secNum(sec)).padStart(2, '0')} ${fileSafe(d.title || d.name.replace(/\.[^.]+$/, ''))}${extOf(d.name) ? '.' + extOf(d.name) : ''}`;
   };
+
+  // One file, saved under its checklist name (same name the ZIP uses).
+  async function downloadDoc(d, btn){
+    btn.disabled = true;
+    try {
+      const { data, error } = await db.storage.from(PROFILE_BUCKET).createSignedUrl(d.path, 600, { download: downloadName(d) });
+      if (error) throw error;
+      const a = document.createElement('a');
+      a.href = data.signedUrl;
+      a.click();
+    } catch (err){ toast('Download failed: ' + err.message); }
+    finally { btn.disabled = false; }
+  }
 
   $('doc-form').onsubmit = async e => {
     e.preventDefault();
