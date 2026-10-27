@@ -201,7 +201,7 @@ code{background:var(--surface-2);padding:1px 5px;border-radius:4px;font-size:.92
   #print-area{display:block;}
   #print-area img{display:block;width:100vw;height:99vh;object-fit:contain;break-after:page;}
   #print-area img:last-child{break-after:auto;}
-  #print-area.print-image img{padding:12mm;box-sizing:border-box;}
+  #print-area img.pr-photo{padding:12mm;box-sizing:border-box;}
 }
 .doc-tile{all:unset;box-sizing:border-box;cursor:pointer;display:grid;gap:3px;min-width:0;}
 .doc-tile:hover .doc-thumb,.doc-tile:focus-visible .doc-thumb{border-color:var(--navy);}

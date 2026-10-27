@@ -2093,7 +2093,7 @@
     main.innerHTML = `
       <div class="p-head">
         <h1>Company profile${coLabel()}</h1>
-        <div class="p-tools"><button class="btn btn-sm btn-navy" type="button" id="doc-zip">Download all (ZIP)</button></div>
+        <div class="p-tools"><button class="btn btn-sm btn-quiet" type="button" id="doc-print-all">Print all</button><button class="btn btn-sm btn-navy" type="button" id="doc-zip">Download all (ZIP)</button></div>
       </div>
       <div class="panel-box profile-head">
         <div><b>${esc(S.company)}</b><span class="muted">${[S.email, S.phone, S.postal].filter(known).map(esc).join(' · ')}</span>
@@ -2103,6 +2103,7 @@
       <p class="muted small">Private: only admins can see these files. Upload PDFs, phone photos or scans, Word or Excel files (up to 25 MB each). Add expiry dates and the portal warns you 30 days before.</p>
       <div class="doc-cards" id="doc-cards"></div>`;
     $('doc-zip').onclick = downloadZip;
+    $('doc-print-all').onclick = () => printDocs(zipDocs(), $('doc-print-all'));
     drawProfile();
   };
 
@@ -2317,9 +2318,9 @@
     finally { btn.disabled = false; }
   }
 
-  // Print one document: its pages (PDF, drawn by pdf.js) or the photo go into
+  // Print documents: their pages (PDFs, drawn by pdf.js) and photos go into
   // #print-area, the only thing the print stylesheet shows. Word / Excel files
-  // can't be drawn in the browser, so they have no Print button (download them instead).
+  // can't be drawn in the browser, so they're left out (download them instead).
   let printing = false;
   function clearPrint(){
     const area = $('print-area');
@@ -2327,35 +2328,43 @@
     area.innerHTML = '';
   }
   window.addEventListener('afterprint', clearPrint);
-  async function printDoc(d, btn){
-    const url = signed[d.path];
-    if (printing || !d) return;
-    if (!url) return toast('Could not open the file. Reload the page and try again.');
+  async function printDocs(docs, btn){
+    if (printing) return;
+    const all = docs.filter(Boolean), skipped = all.filter(d => docKind(d) === 'other').length;
+    docs = all.filter(d => docKind(d) !== 'other');
+    if (!docs.length){ toast(all.length ? 'Only Word / Excel files here: download them to print' : 'Nothing uploaded yet'); return; }
     printing = true;
     btn.disabled = true;
     clearPrint();
-    const area = $('print-area'), kind = docKind(d);
-    area.className = 'print-' + kind;
+    const area = $('print-area');
     try {
-      if (kind === 'pdf'){
-        toast('Preparing pages to print…');
-        const box = document.createElement('div');
-        await renderPdf(url, box, { width: 1400 / (window.devicePixelRatio || 1), pages: 500 });
-        for (const c of box.querySelectorAll('canvas')){
+      await signAll(docs);
+      for (const [i, d] of docs.entries()){
+        const url = signed[d.path];
+        if (!url) throw new Error(`${d.title || d.name} could not be opened. Reload the page and try again`);
+        toast(docs.length > 1 ? `Preparing ${i + 1} of ${docs.length}…` : 'Preparing to print…');
+        if (docKind(d) === 'pdf'){
+          const box = document.createElement('div');
+          await renderPdf(url, box, { width: 1400 / (window.devicePixelRatio || 1), pages: 500 });
+          for (const c of box.querySelectorAll('canvas')){
+            const img = document.createElement('img');
+            img.src = URL.createObjectURL(await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92)));
+            area.appendChild(img);
+          }
+        } else {
           const img = document.createElement('img');
-          img.src = URL.createObjectURL(await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92)));
+          img.className = 'pr-photo';
+          img.src = url;
           area.appendChild(img);
         }
-      } else {
-        const img = document.createElement('img');
-        img.src = url;
-        area.appendChild(img);
       }
       await Promise.all([...area.querySelectorAll('img')].map(i => i.decode()));
       window.print();
+      if (skipped) toast(`Left out ${skipped} Word / Excel file${skipped === 1 ? '' : 's'}: download ${skipped === 1 ? 'it' : 'them'} to print`);
     } catch (err){ clearPrint(); toast('Print failed: ' + err.message); }
     finally { printing = false; btn.disabled = false; }
   }
+  const printDoc = (d, btn) => printDocs([d], btn);
 
   $('doc-form').onsubmit = async e => {
     e.preventDefault();
@@ -2383,9 +2392,12 @@
   };
 
   // Every current document in one ZIP, in checklist order, ready to attach to a tender.
+  // Everything current, in checklist order (what Download all and Print all use).
+  const zipDocs = () => PROFILE_SECTIONS.flatMap(sec => profile.docs.filter(d => inSec(d, sec) && docState(d, profile.docs) !== 'replaced'));
+
   async function downloadZip(){
     const btn = $('doc-zip');
-    const docs = PROFILE_SECTIONS.flatMap(sec => profile.docs.filter(d => inSec(d, sec) && docState(d, profile.docs) !== 'replaced'));
+    const docs = zipDocs();
     if (!docs.length){ toast('Nothing uploaded yet'); return; }
     btn.disabled = true;
     try {
