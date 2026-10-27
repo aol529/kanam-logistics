@@ -10,6 +10,11 @@ code{background:var(--surface-2);padding:1px 5px;border-radius:4px;font-size:.92
 .gate-card h1{font-size:26px;margin:4px 0 0;}
 .gate-card p{margin:0;}
 .gate-card a{font-size:14px;}
+.gate-card .link{font-size:14px;justify-self:start;}
+.ask-done{display:grid;gap:14px;padding:24px;}
+.ask-done h2,.ask-done p{margin:0;}
+.ask-box{margin-bottom:16px;}
+.ask-box h2{margin-top:0;}
 
 /* Layout: sidebar + main */
 .p-app{display:grid;grid-template-columns:232px minmax(0,1fr);min-height:100vh;}

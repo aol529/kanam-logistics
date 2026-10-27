@@ -84,11 +84,57 @@
 
   $('signin-form').onsubmit = async e => {
     e.preventDefault();
-    const f = e.target;
+    const f = e.target, email = f.email.value.trim();
     $('signin-error').textContent = '';
-    const { error } = await db.auth.signInWithPassword({ email: f.email.value.trim(), password: f.password.value });
-    if (error) $('signin-error').textContent = /invalid login/i.test(error.message) ? 'That email and password don\'t match.' : error.message;
-    else f.password.value = '';
+    const { error } = await db.auth.signInWithPassword({ email, password: f.password.value });
+    if (!error){ f.password.value = ''; return; }
+    if (/invalid login/i.test(error.message) && await isNewEmail(email)) return askAccess(email);
+    $('signin-error').textContent = /invalid login/i.test(error.message) ? 'That email and password don\'t match.' : error.message;
+  };
+  // Enter with nothing typed, or with an email that isn't staff (and no password yet),
+  // opens "Ask for access" instead of the browser's "fill in this field".
+  $('signin-form').addEventListener('keydown', async e => {
+    if (e.key !== 'Enter') return;
+    const f = $('signin-form'), email = f.email.value.trim();
+    if (!email){ e.preventDefault(); askAccess(''); return; }
+    if (!f.password.value){
+      e.preventDefault();
+      if (f.email.checkValidity() && await isNewEmail(email)) askAccess(email);
+      else f.password.focus();
+    }
+  });
+  $('ask-open').onclick = () => askAccess($('signin-form').email.value.trim());
+
+  // False when the check isn't set up (sql/09 not run) or fails, so staff just see the usual error.
+  async function isNewEmail(email){
+    const { data, error } = await db.rpc('is_staff_email', { p_email: email });
+    return !error && data === false;
+  }
+  function askAccess(email){
+    const f = $('ask-form');
+    f.reset();
+    f.email.value = email;
+    $('ask-error').textContent = '';
+    $('ask-done').hidden = true;
+    f.hidden = false;
+    $('ask-dialog').showModal();
+    (email ? f.name : f.email).focus();
+  }
+  $('ask-form').onsubmit = async e => {
+    e.preventDefault();
+    const f = e.target, btn = f.querySelector('[type=submit]');
+    $('ask-error').textContent = '';
+    btn.disabled = true;
+    const { error } = await db.from('access_requests').insert({ email: f.email.value.trim(), name: f.name.value.trim(), note: f.note.value.trim() });
+    btn.disabled = false;
+    if (error && error.code !== '23505'){
+      $('ask-error').textContent = /(does not exist|schema cache)/.test(error.message)
+        ? 'Asking for access isn\'t switched on yet. Contact an admin directly.' : error.message;
+      return;
+    }
+    // 23505: this email already asked, which is fine.
+    f.hidden = true;
+    $('ask-done').hidden = false;
   };
   $('sign-out').onclick = () => db.auth.signOut();
 
@@ -115,6 +161,7 @@
     if (error || !data || !data.active){
       await db.auth.signOut();
       $('signin-error').textContent = error ? error.message : 'This login is not a staff account (or has been switched off). Ask an admin to add you under Staff.';
+      if (!error && !data) askAccess(user.email || '');
       return;
     }
     me = data;
@@ -567,7 +614,7 @@
   /* ---------------- Dashboard ---------------- */
   VIEWS.dashboard = async main => {
     const can = id => allowed(TABS.find(t => t.id === id));
-    const [inq, posts, settings, products, activity, profile, rice, road] = await Promise.all([
+    const [inq, posts, settings, products, activity, profile, rice, road, asks] = await Promise.all([
       can('inquiries') ? byCo(db.from('inquiries').select('id,status,name,kind,created_at')).order('created_at', { ascending: false }).limit(200) : { data: null },
       can('posts') ? db.from('posts').select('id,status,title') : { data: null },
       db.from('settings').select('key,value'),
@@ -575,7 +622,8 @@
       can('activity') ? db.from('activity').select('*').order('at', { ascending: false }).limit(6) : { data: null },
       can('profile') ? profileStatus() : null,
       can('ledger') ? ledgerStatus() : null,
-      can('roads') ? roadStatus() : null
+      can('roads') ? roadStatus() : null,
+      can('staff') ? db.from('access_requests').select('id', { count: 'exact', head: true }) : { error: true }
     ]);
     const saved = {};
     (settings.data || []).forEach(r => { saved[r.key] = r.value; });
@@ -595,6 +643,7 @@
         ${posts.data ? card(posts.data.filter(p => p.status === 'published').length, 'News published', 'posts') : ''}
         ${posts.data ? card(posts.data.filter(p => p.status === 'draft').length, 'News drafts', 'posts') : ''}
         ${profile ? card(profile.todo, 'Tender documents missing or expiring', 'profile', profile.todo ? 'warn' : '') : ''}
+        ${!asks.error && asks.count ? card(asks.count, `${asks.count === 1 ? 'Person' : 'People'} asking for portal access`, 'staff', 'hot') : ''}
         ${card(placeholders.length, 'Company details still to fill in', allowed(TABS.find(t => t.id === 'settings')) ? 'settings' : '', placeholders.length ? 'warn' : '')}
       </div>
       <div class="dash-grid">
@@ -1903,11 +1952,24 @@
   /* ---------------- Staff ---------------- */
   const ROLE_TEXT = { admin: 'Admin: everything', editor: 'Editor: website content', sales: 'Sales: inquiries & stock' };
   VIEWS.staff = async main => {
-    const { data, error } = await db.from('staff').select('*').order('created_at');
+    const [{ data, error }, req] = await Promise.all([
+      db.from('staff').select('*').order('created_at'),
+      db.from('access_requests').select('*').order('created_at')
+    ]);
     if (error) throw error;
-    const staff = data || [];
+    const staff = data || [], asks = req.data || [];
+    const asksHtml = req.error
+      ? (/(does not exist|schema cache)/.test(req.error.message) ? '<p class="muted small">To let new people ask for access from the sign-in page, run <code>sql/09-access-requests.sql</code> in the Supabase SQL editor.</p>' : '')
+      : asks.length ? `<section class="panel-box ask-box"><h2>Asking for access <span class="pill new">${asks.length}</span></h2>
+        <ul class="rows no-thumb staff-rows">${asks.map(a => `
+          <li class="staff-row" data-ask="${a.id}">
+            <span><span class="title">${esc(a.name || a.email)}</span><span class="sub">${esc([a.name ? a.email : '', when(a.created_at), a.note].filter(Boolean).join(' · '))}</span></span>
+            <button type="button" class="btn btn-sm btn-navy" data-ask-add>Add as staff</button>
+            <button type="button" class="btn-text danger" data-ask-dismiss>Dismiss</button>
+          </li>`).join('')}</ul></section>` : '';
     main.innerHTML = `
       <div class="p-head"><h1>Staff</h1></div>
+      ${asksHtml}
       <ul class="rows no-thumb staff-rows">${staff.map(s => `
         <li class="staff-row" data-id="${s.user_id}">
           <span><span class="title">${esc(s.name || s.email)}${s.user_id === me.user_id ? ' <span class="pill">you</span>' : ''}</span><span class="sub">${esc(s.email)}</span></span>
@@ -1946,9 +2008,28 @@
       $('staff-error').textContent = '';
       const { error } = await db.rpc('add_staff', { p_email: f.email.value.trim(), p_name: f.name.value.trim(), p_role: f.role.value });
       if (error){ $('staff-error').textContent = error.message; return; }
+      // They asked from the sign-in page: that request is done.
+      await db.from('access_requests').delete().ilike('email', f.email.value.trim());
       toast('Added. They can sign in now.');
       refresh();
     };
+    main.querySelectorAll('[data-ask]').forEach(row => {
+      const a = asks.find(x => x.id === row.dataset.ask);
+      row.querySelector('[data-ask-add]').onclick = () => {
+        const f = $('staff-form');
+        f.email.value = a.email;
+        f.name.value = a.name;
+        f.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        f.role.focus();
+        toast('First make their login in Supabase (step 1), then pick a role and press Add.');
+      };
+      row.querySelector('[data-ask-dismiss]').onclick = async () => {
+        const { error } = await db.from('access_requests').delete().eq('id', a.id);
+        if (error){ toast(error.message); return; }
+        toast('Dismissed');
+        refresh();
+      };
+    });
   };
 
   /* ---------------- Company profile (tender documents) ---------------- */
@@ -2134,6 +2215,7 @@
         ${mine.length ? `<div class="doc-files">${mine.map(d => docTile(d, docs)).join('')}</div>` : ''}
         <div class="doc-actions">
           <label class="btn btn-sm btn-quiet file-btn">Upload <input type="file" accept="${DOC_TYPES}" multiple hidden data-upload></label>
+          ${mine.some(d => docKind(d) !== 'other') ? '<button type="button" class="btn btn-sm btn-quiet" data-print>Print</button>' : ''}
           ${sec.custom ? '<button type="button" class="btn-text danger" data-remove>Remove item</button>' : ''}
           ${sec.key === 'other' ? '' : `<label class="check small"><input type="checkbox" data-na${item && item.not_applicable ? ' checked' : ''}> Not applicable</label>`}
         </div>
@@ -2155,6 +2237,8 @@
     $('doc-cards').querySelectorAll('.doc-card[data-sec]').forEach(card => {
       const sec = secOf(card.dataset.sec);
       card.querySelector('[data-upload]').onchange = e => uploadDocs(sec, [...e.target.files]);
+      const pr = card.querySelector('[data-print]');
+      if (pr) pr.onclick = () => printDocs(profile.docs.filter(d => inSec(d, sec) && docState(d, profile.docs) !== 'replaced'), pr);
       const na = card.querySelector('[data-na]');
       const rm = card.querySelector('[data-remove]');
       if (rm) rm.onclick = () => removeItem(sec, rm);

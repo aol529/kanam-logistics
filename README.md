@@ -20,8 +20,8 @@ Company website and CMS. Static HTML/CSS/JS backed by Supabase.
 | Testimonials, FAQs, Team | Shown on Home, Contact and About (testimonials and team stay hidden until there is one) |
 | Company details | Phone, WhatsApp, email, KRA PIN, registration, About text... used across the site. Per company: pick it in the switcher |
 | Companies | The group: Kanam Logistics, Techpride Ventures Ltd, Nyamasaria Glassmart and General Hardwares. Add a company, or switch one on or off the website. Admins only |
-| Company profile | Tender documents (incorporation, CR12, KRA PIN & TCC, directors, trade license, NCA, power of attorney, AGPO, litigation & affidavit, bank statement, audited accounts, past experience): upload, preview, print one or all (PDFs and photos), expiry warnings, download all as one ZIP. **Private, admins only** |
-| Staff | Add staff and set their role |
+| Company profile | Tender documents (incorporation, CR12, KRA PIN & TCC, directors, trade license, NCA, power of attorney, AGPO, litigation & affidavit, bank statement, audited accounts, past experience): upload, preview, print one document, a checklist item or all of them (PDFs and photos), expiry warnings, download all as one ZIP. **Private, admins only** |
+| Staff | Add staff and set their role. People who used **New here? Ask for access** on the sign-in page are listed at the top: add them or dismiss them |
 | Activity log | Every change: who, when, and what it was before |
 
 **The company switcher** (top of the menu) picks which company's details, tender documents (Company profile), projects, inquiries and road works you see. Pages, news, media, products, machinery, FAQs, testimonials, team and staff are shared. The rice ledger is Kanam's.
@@ -35,7 +35,7 @@ Anything in `[square brackets]` is a placeholder and shows **highlighted in yell
 ## Setup
 
 1. Create a Supabase project and put its URL and publishable key in `js/config.js`.
-2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`, then `sql/03-profile.sql`, then `sql/04-ledger.sql`, then `sql/05-equipment.sql`, then `sql/06-roads.sql`, then `sql/07-companies.sql`, then `sql/08-checklists.sql`.
+2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`, then `sql/03-profile.sql`, then `sql/04-ledger.sql`, then `sql/05-equipment.sql`, then `sql/06-roads.sql`, then `sql/07-companies.sql`, then `sql/08-checklists.sql`, then `sql/09-access-requests.sql`.
 3. Authentication → Users → **Add user** (your email and a password, tick Auto Confirm). Then in the SQL editor:
    `insert into public.staff (user_id, email, name, role) select id, email, 'Your name', 'admin' from auth.users where email = 'you@example.com';`
    (Later staff are added from the portal's Staff page.)

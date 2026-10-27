@@ -34,6 +34,7 @@
     <label>Password <input type="password" name="password" autocomplete="current-password" required></label>
     <button class="btn btn-navy" type="submit">Sign in</button>
     <p id="signin-error" class="form-status err" role="alert"></p>
+    <button class="link" type="button" id="ask-open">New here? Ask for access</button>
     <a href="../index.html">← Back to the website</a>
   </form>
 </section>
@@ -152,6 +153,28 @@
       <button type="submit" class="btn btn-sm btn-navy">Save</button>
     </div>
   </form>
+</dialog>
+
+<!-- New here? Ask for access (sign-in page) -->
+<dialog id="ask-dialog" class="p-dialog">
+  <form id="ask-form" method="dialog">
+    <h2>New here?</h2>
+    <p class="muted">Staff logins are made by an admin. Leave your email and they'll set you up and send you a password.</p>
+    <label>Email <input type="email" name="email" autocomplete="email" maxlength="200" required></label>
+    <label>Name <input name="name" autocomplete="name" maxlength="120"></label>
+    <label>Note <span class="opt">(optional)</span> <textarea name="note" rows="2" maxlength="500" placeholder="e.g. Sales, Kisumu office"></textarea></label>
+    <p class="form-status err" id="ask-error" role="alert"></p>
+    <div class="d-actions">
+      <span class="spacer"></span>
+      <button type="button" class="btn btn-sm btn-quiet" data-close>Back</button>
+      <button type="submit" class="btn btn-sm btn-navy">Ask for access</button>
+    </div>
+  </form>
+  <div id="ask-done" class="ask-done" hidden>
+    <h2>Thanks, we've got it</h2>
+    <p class="muted">An admin will set up your login and send you the password.</p>
+    <div class="d-actions"><span class="spacer"></span><button type="button" class="btn btn-sm btn-navy" data-close>Done</button></div>
+  </div>
 </dialog>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
