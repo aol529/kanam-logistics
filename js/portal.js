@@ -1990,7 +1990,7 @@
         </div>
         <p class="form-status err" id="staff-error" role="alert"></p>
       </form>`;
-    main.querySelectorAll('.staff-row').forEach(row => {
+    main.querySelectorAll('.staff-row[data-id]').forEach(row => {
       const id = row.dataset.id, s = staff.find(x => x.user_id === id);
       const save = async patch => {
         const { error } = await db.from('staff').update(patch).eq('user_id', id);
