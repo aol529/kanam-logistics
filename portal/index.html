@@ -128,6 +128,7 @@
       <div class="p-tools">
         <a class="btn btn-sm btn-quiet" id="doc-open" target="_blank" rel="noopener">Open in new tab ↗</a>
         <a class="btn btn-sm btn-quiet" id="doc-download">Download</a>
+        <button type="button" class="btn btn-sm btn-quiet" id="doc-print">Print</button>
       </div>
     </div>
     <div class="doc-layout">
@@ -154,6 +155,8 @@
 </dialog>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>
+<!-- What gets printed (Company profile → Print); hidden on screen -->
+<div id="print-area"></div>
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3"></script>
 <script src="../js/config.js?v=__BUILD__"></script>

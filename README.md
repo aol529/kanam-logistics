@@ -20,7 +20,7 @@ Company website and CMS. Static HTML/CSS/JS backed by Supabase.
 | Testimonials, FAQs, Team | Shown on Home, Contact and About (testimonials and team stay hidden until there is one) |
 | Company details | Phone, WhatsApp, email, KRA PIN, registration, About text... used across the site. Per company: pick it in the switcher |
 | Companies | The group: Kanam Logistics, Techpride Ventures Ltd, Nyamasaria Glassmart and General Hardwares. Add a company, or switch one on or off the website. Admins only |
-| Company profile | Tender documents (incorporation, CR12, KRA PIN & TCC, directors, trade license, NCA, power of attorney, AGPO, litigation & affidavit, bank statement, audited accounts, past experience): upload, preview, expiry warnings, download all as one ZIP. **Private, admins only** |
+| Company profile | Tender documents (incorporation, CR12, KRA PIN & TCC, directors, trade license, NCA, power of attorney, AGPO, litigation & affidavit, bank statement, audited accounts, past experience): upload, preview, print (PDFs and photos), expiry warnings, download all as one ZIP. **Private, admins only** |
 | Staff | Add staff and set their role |
 | Activity log | Every change: who, when, and what it was before |
 

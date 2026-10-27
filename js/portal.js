@@ -2167,6 +2167,7 @@
       };
       card.querySelectorAll('.doc-tile').forEach(b => { b.onclick = () => openDoc(profile.docs.find(d => d.id === b.dataset.id)); });
       card.querySelectorAll('.doc-dl').forEach(b => { b.onclick = () => downloadDoc(profile.docs.find(d => d.id === b.dataset.dl), b); });
+      card.querySelectorAll('.doc-pr').forEach(b => { b.onclick = () => printDoc(profile.docs.find(d => d.id === b.dataset.pr), b); });
     });
     // Thumbnails: photos straight away, PDFs one at a time.
     const queue = [];
@@ -2219,7 +2220,7 @@
       <span class="doc-thumb kind-${docKind(d)}" data-id="${d.id}"><span class="doc-ext">${esc(extOf(d.name).toUpperCase() || 'FILE')}</span></span>
       <span class="doc-title">${esc(d.title || d.name)}</span>
       <span class="doc-sub${st === 'expired' ? ' is-err' : st === 'soon' ? ' is-warn' : ''}">${esc(sub)}${st === 'replaced' ? ' · replaced' : ''}</span>
-    </button><button type="button" class="doc-dl" data-dl="${d.id}" title="Download" aria-label="Download ${esc(d.title || d.name)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></button></div>`;
+    </button><button type="button" class="doc-dl" data-dl="${d.id}" title="Download" aria-label="Download ${esc(d.title || d.name)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></button>${docKind(d) === 'other' ? '' : `<button type="button" class="doc-dl doc-pr" data-pr="${d.id}" title="Print" aria-label="Print ${esc(d.title || d.name)}"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 9V3h10v6M7 17H4v-7h16v7h-3M7 14h10v7H7z"/></svg></button>`}</div>`;
   }
 
   async function uploadDocs(sec, files){
@@ -2269,6 +2270,8 @@
     $('doc-download').removeAttribute('href');
     db.storage.from(PROFILE_BUCKET).createSignedUrl(d.path, 600, { download: downloadName(d) })
       .then(({ data }) => { if (editingDoc === d && data) $('doc-download').href = data.signedUrl; });
+    $('doc-print').hidden = docKind(d) === 'other';
+    $('doc-print').onclick = () => printDoc(d, $('doc-print'));
     if (!$('doc-dialog').open) $('doc-dialog').showModal();
 
     // Preview
@@ -2312,6 +2315,46 @@
       a.click();
     } catch (err){ toast('Download failed: ' + err.message); }
     finally { btn.disabled = false; }
+  }
+
+  // Print one document: its pages (PDF, drawn by pdf.js) or the photo go into
+  // #print-area, the only thing the print stylesheet shows. Word / Excel files
+  // can't be drawn in the browser, so they have no Print button (download them instead).
+  let printing = false;
+  function clearPrint(){
+    const area = $('print-area');
+    area.querySelectorAll('img[src^="blob:"]').forEach(i => URL.revokeObjectURL(i.src));
+    area.innerHTML = '';
+  }
+  window.addEventListener('afterprint', clearPrint);
+  async function printDoc(d, btn){
+    const url = signed[d.path];
+    if (printing || !d) return;
+    if (!url) return toast('Could not open the file. Reload the page and try again.');
+    printing = true;
+    btn.disabled = true;
+    clearPrint();
+    const area = $('print-area'), kind = docKind(d);
+    area.className = 'print-' + kind;
+    try {
+      if (kind === 'pdf'){
+        toast('Preparing pages to print…');
+        const box = document.createElement('div');
+        await renderPdf(url, box, { width: 1400 / (window.devicePixelRatio || 1), pages: 500 });
+        for (const c of box.querySelectorAll('canvas')){
+          const img = document.createElement('img');
+          img.src = URL.createObjectURL(await new Promise(r => c.toBlob(r, 'image/jpeg', 0.92)));
+          area.appendChild(img);
+        }
+      } else {
+        const img = document.createElement('img');
+        img.src = url;
+        area.appendChild(img);
+      }
+      await Promise.all([...area.querySelectorAll('img')].map(i => i.decode()));
+      window.print();
+    } catch (err){ clearPrint(); toast('Print failed: ' + err.message); }
+    finally { printing = false; btn.disabled = false; }
   }
 
   $('doc-form').onsubmit = async e => {
