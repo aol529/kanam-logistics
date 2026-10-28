@@ -6,8 +6,17 @@
 (function(){
   const D = window.KANAM_DEFAULTS;
   const cfg = window.KANAM_CONFIG || {};
-  const connected = !!(cfg.supabaseUrl && !/YOUR-/.test(cfg.supabaseUrl + cfg.supabaseAnonKey) && window.supabase);
-  const db = connected ? supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey) : null;
+  const connected = !!(cfg.supabaseUrl && !/YOUR-/.test(cfg.supabaseUrl + cfg.supabaseAnonKey));
+  // The site only reads content and sends the form, so it talks to Supabase's
+  // REST API with plain fetch instead of loading the supabase-js library.
+  const db = connected ? cfg.supabaseUrl.replace(/\/+$/, '') : null;
+  const api = (path, opts = {}) => fetch(`${db}/rest/v1/${path}`, Object.assign({}, opts, {
+    headers: Object.assign({ apikey: cfg.supabaseAnonKey, 'Content-Type': 'application/json' }, opts.headers)
+  })).then(async res => {
+    if (res.ok) return res.status === 204 || res.status === 201 ? null : res.json();
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.message || `HTTP ${res.status}`);
+  });
 
   const $ = s => document.querySelector(s);
   const $$ = s => Array.from(document.querySelectorAll(s));
@@ -30,7 +39,7 @@
   const md = s => window.KanamMD ? KanamMD.render(s) : esc(s);
   const fmtDate = iso => iso ? new Date(iso).toLocaleDateString('en-KE', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
 
-  const imgUrl = path => path && db ? db.storage.from('site').getPublicUrl(path).data.publicUrl : '';
+  const imgUrl = path => path && db ? `${db}/storage/v1/object/public/site/${path}` : '';
   const productName = p => p.name + (p.size_kg ? ` – ${Number(p.size_kg)} kg` : '');
 
   function waLink(text){
@@ -107,34 +116,64 @@
   }
 
   /* ------------------------------ Content ------------------------------ */
+  // One request (site_data, sql/10-site-data.sql) for everything; before that
+  // SQL is run, the tables are read one by one as before.
+  const TABLES = {
+    settings: 'settings?select=key,value',
+    content: 'content?select=key,value',
+    products: 'products?select=*&published=eq.true&order=sort,size_kg',
+    projects: 'projects?select=*&published=eq.true&order=sort,created_at.desc',
+    faqs: 'faqs?select=*&published=eq.true&order=sort',
+    testimonials: 'testimonials?select=*&published=eq.true&order=sort',
+    team: 'team?select=*&published=eq.true&order=sort',
+    equipment: 'equipment?select=*&published=eq.true&order=sort,name',
+    companies: 'companies?select=*&published=eq.true&order=sort,name'
+  };
+  async function fetchContent(withPosts){
+    try {
+      return await api('rpc/site_data', { method: 'POST', body: JSON.stringify({ p_posts: withPosts }) });
+    } catch (err){
+      if (!/site_data|function|404/i.test(err.message)) throw err;
+    }
+    const q = Object.assign({}, TABLES, withPosts ? { posts: 'posts?select=id,slug,title,excerpt,body,cover_path,published_at,author_name&status=eq.published'
+      + `&published_at=lte.${encodeURIComponent(new Date().toISOString())}&order=published_at.desc&limit=100` } : {});
+    const keys = Object.keys(q);
+    // A table that isn't there yet (older SQL) comes back null: the defaults stand in.
+    const rows = await Promise.all(keys.map(k => api(q[k]).catch(err => { console.warn('Kanam: using default content –', err.message); return null; })));
+    return Object.fromEntries(keys.map((k, i) => [k, rows[i]]));
+  }
+  function applyData(d){
+    if (d.settings) d.settings.forEach(r => { if (r.value) S[r.key] = r.value; });
+    if (d.products && d.products.length) products = d.products;
+    if (d.projects && d.projects.length) projects = d.projects;
+    if (d.content) d.content.forEach(r => { C[r.key] = r.value; });
+    if (d.faqs && d.faqs.length) faqs = d.faqs;
+    if (d.testimonials) testimonials = d.testimonials;
+    if (d.team) team = d.team;
+    if (d.posts) posts = d.posts;
+    if (d.equipment && d.equipment.length) equipment = d.equipment;
+    if (d.companies) companies = d.companies;
+  }
+
+  // The last content this browser loaded is shown straight away, then
+  // refreshed in the background, so pages don't flash the default text first.
+  const CACHE = 'kanam_site_v1';
+  const cacheKey = withPosts => CACHE + (withPosts ? '_news' : '');
+  function cached(withPosts){
+    try { return JSON.parse(localStorage.getItem(cacheKey(withPosts)) || 'null'); } catch (e){ return null; }
+  }
   async function load(){
-    if (!db) return;
-    const needPosts = document.querySelector('[data-news]');
-    const [s, p, j, c, f, t, m, n, e, g] = await Promise.all([
-      db.from('settings').select('key,value'),
-      db.from('products').select('*').eq('published', true).order('sort').order('size_kg'),
-      db.from('projects').select('*').eq('published', true).order('sort').order('created_at', { ascending: false }),
-      db.from('content').select('key,value'),
-      db.from('faqs').select('*').eq('published', true).order('sort'),
-      db.from('testimonials').select('*').eq('published', true).order('sort'),
-      db.from('team').select('*').eq('published', true).order('sort'),
-      needPosts ? db.from('posts').select('id,slug,title,excerpt,body,cover_path,published_at,author_name').eq('status', 'published')
-        .lte('published_at', new Date().toISOString()).order('published_at', { ascending: false }).limit(100) : { data: [] },
-      db.from('equipment').select('*').eq('published', true).order('sort').order('name'),
-      db.from('companies').select('*').eq('published', true).order('sort').order('name')
-    ]);
-    if (!s.error) (s.data || []).forEach(r => { if (r.value) S[r.key] = r.value; });
-    if (!p.error && p.data && p.data.length) products = p.data;
-    if (!j.error && j.data && j.data.length) projects = j.data;
-    if (!c.error) (c.data || []).forEach(r => { C[r.key] = r.value; });
-    if (!f.error && f.data && f.data.length) faqs = f.data;
-    if (!t.error) testimonials = t.data || [];
-    if (!m.error) team = m.data || [];
-    if (!n.error) posts = n.data || [];
-    if (!e.error && e.data && e.data.length) equipment = e.data;
-    if (!g.error) companies = g.data || [];
-    // Tables added by sql/02-cms.sql may not exist yet: the defaults stand in.
-    [s, p, j, c, f, t, m, n, e, g].forEach(r => { if (r.error) console.warn('Kanam: using default content –', r.error.message); });
+    if (!db) return false;
+    const withPosts = !!document.querySelector('[data-news]');
+    const d = await fetchContent(withPosts);
+    const json = JSON.stringify(d);
+    let same = false;
+    try {
+      same = localStorage.getItem(cacheKey(withPosts)) === json;
+      localStorage.setItem(cacheKey(withPosts), json);
+    } catch (e){}
+    applyData(d);
+    return !same;
   }
 
   // Page text edited in the portal replaces the text written in the HTML.
@@ -445,7 +484,7 @@
       note.className = 'form-status';
       if (db){
         button.disabled = true;
-        const { error } = await db.from('inquiries').insert([row]);
+        const error = await api('inquiries', { method: 'POST', headers: { Prefer: 'return=minimal' }, body: JSON.stringify([row]) }).then(() => null, err => err);
         button.disabled = false;
         if (!error){
           f.reset(); toggleKind();
@@ -468,7 +507,10 @@
   /* ------------------------------ Start ------------------------------ */
   function renderAll(){ applyContent(); fill(); renderProducts(); renderEquipment(); renderProjects(); renderCompanies(); renderFaqs(); renderTestimonials(); renderTeam(); renderNews(); form(); }
   layout();
+  const saved = db && cached(!!document.querySelector('[data-news]'));
+  if (saved){ applyData(saved); loaded = true; }
   renderAll();
-  load().then(() => { loaded = true; renderAll(); })
-        .catch(err => console.warn('Kanam: using default content –', err.message));
+  // Redraw only if the content changed since this browser last saw it.
+  load().then(changed => { const first = !loaded; loaded = true; if (changed || first) renderAll(); })
+        .catch(err => { console.warn('Kanam: using default content –', err.message); if (!loaded){ loaded = true; renderAll(); } });
 })();

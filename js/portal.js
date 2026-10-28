@@ -221,7 +221,35 @@
   const refresh = () => show(current);
 
   /* ================================ Media library ================================ */
-  async function uploadToLibrary(file){
+  // Phone photos are several MB and Supabase's free plan can't resize them when
+  // served, so they're shrunk here: at most 1600px on the long side, as WebP
+  // (JPEG where the browser can't make WebP). Small files, GIFs, SVGs and
+  // anything the browser can't open (e.g. HEIC) are uploaded as they are.
+  const MAX_SIDE = 1600;
+  async function shrinkPhoto(file){
+    if (!/^image\/(jpeg|png|webp)$/.test(file.type) || !window.createImageBitmap) return file;
+    let bmp;
+    try { bmp = await createImageBitmap(file, { imageOrientation: 'from-image' }); } catch (e){ return file; }
+    const scale = Math.min(1, MAX_SIDE / Math.max(bmp.width, bmp.height));
+    if (scale === 1 && file.size < 400 * 1024){ bmp.close(); return file; }
+    const canvas = document.createElement('canvas');
+    canvas.width = Math.round(bmp.width * scale);
+    canvas.height = Math.round(bmp.height * scale);
+    canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+    bmp.close();
+    let blob = await new Promise(r => canvas.toBlob(r, 'image/webp', 0.82));
+    // PNGs with see-through parts (logos) need WebP; JPEG would fill them black.
+    if (!blob || blob.type !== 'image/webp'){
+      if (file.type === 'image/png') return file;
+      blob = await new Promise(r => canvas.toBlob(r, 'image/jpeg', 0.85));
+    }
+    if (!blob || blob.size >= file.size) return file;
+    const ext = blob.type === 'image/webp' ? 'webp' : 'jpg';
+    return new File([blob], file.name.replace(/\.[^.]+$/, '') + '.' + ext, { type: blob.type });
+  }
+
+  async function uploadToLibrary(original){
+    const file = await shrinkPhoto(original);
     const ext = (file.name.split('.').pop() || 'jpg').toLowerCase().replace(/[^a-z0-9]/g, '') || 'jpg';
     const path = `library/${crypto.randomUUID()}.${ext}`;
     const up = await db.storage.from(BUCKET).upload(path, file, { contentType: file.type, upsert: false });
@@ -1809,7 +1837,7 @@
           <label class="btn btn-sm btn-navy file-btn">Upload photos <input type="file" id="media-upload" accept="image/*" multiple hidden></label>
         </div>
       </div>
-      <p class="muted">Upload once, then use the photo for products, projects, news or the team. Tip: phone photos are fine; under 2 MB each keeps the site fast.</p>
+      <p class="muted">Upload once, then use the photo for products, projects, news or the team. Phone photos are fine: they're shrunk automatically to load fast on the website.</p>
       <div class="media-grid" id="media-grid"></div>`;
     const draw = () => {
       const q = $('media-search').value.trim().toLowerCase();

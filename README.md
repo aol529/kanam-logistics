@@ -14,7 +14,7 @@ Company website and CMS. Static HTML/CSS/JS backed by Supabase.
 | Road works ledger | Per road project: the contract amount, payments from the client less withholding tax, and a daily cost log (quantity × price) filled from standard days — work day (Probox fuel, crew allowances and lunch, grader diesel, night security), murram day (murram trips, lorries, lorry lunch and diesel, excavator hours, diesel and operator's lunch) and bush clearing — with costs by category, expected profit and what is still owed. Download as Excel. Admin and sales only |
 | Pages | Every headline, paragraph, list item and button on every page, plus each page's Google title and description |
 | News | Posts with cover photo, simple formatting, draft / published / scheduled |
-| Media library | Upload photos once, reuse them anywhere; alt text and captions |
+| Media library | Upload photos once, reuse them anywhere; alt text and captions. Photos are shrunk on upload (max 1600 px, WebP) |
 | Machinery hire | Grader, excavator and other machines on the Services page: hire rate (per hour / day / week), terms, status (available, on hire, coming soon), photo |
 | Products, Projects | Rice bags and prices, stock; road works, supplies and rice projects |
 | Testimonials, FAQs, Team | Shown on Home, Contact and About (testimonials and team stay hidden until there is one) |
@@ -35,14 +35,18 @@ Anything in `[square brackets]` is a placeholder and shows **highlighted in yell
 ## Setup
 
 1. Create a Supabase project and put its URL and publishable key in `js/config.js`.
-2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`, then `sql/03-profile.sql`, then `sql/04-ledger.sql`, then `sql/05-equipment.sql`, then `sql/06-roads.sql`, then `sql/07-companies.sql`, then `sql/08-checklists.sql`, then `sql/09-access-requests.sql`.
+2. In its SQL editor, run `sql/01-schema.sql`, then `sql/02-cms.sql`, then `sql/03-profile.sql`, then `sql/04-ledger.sql`, then `sql/05-equipment.sql`, then `sql/06-roads.sql`, then `sql/07-companies.sql`, then `sql/08-checklists.sql`, then `sql/09-access-requests.sql`, then `sql/10-site-data.sql`.
 3. Authentication → Users → **Add user** (your email and a password, tick Auto Confirm). Then in the SQL editor:
    `insert into public.staff (user_id, email, name, role) select id, email, 'Your name', 'admin' from auth.users where email = 'you@example.com';`
    (Later staff are added from the portal's Staff page.)
 4. Authentication → Sign In / Providers: turn **off** "Allow new users to sign up".
 5. `npm start`, then open http://localhost:3002 (CMS: http://localhost:3002/portal/).
 
-Pushing to `main` publishes to GitHub Pages (`.github/workflows/pages.yml`).
+Pushing to `main` publishes to GitHub Pages (`.github/workflows/pages.yml`). `.github/workflows/keep-alive.yml` reads one row twice a week so the free Supabase project doesn't pause.
+
+## Speed
+
+The public pages don't load supabase-js: `js/site.js` gets all content in one request (`site_data`, from `sql/10-site-data.sql`; before that SQL is run it reads the tables one by one) and keeps the last copy in the browser, so a page shows the real content at once and only redraws if something changed.
 
 ## Editing the pages' layout
 

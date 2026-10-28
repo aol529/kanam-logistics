@@ -1,0 +1,25 @@
+name: Keep Supabase awake
+
+# Free Supabase projects pause after about a week without requests, and then
+# the site falls back to its default content and the portal stops working.
+# One small read twice a week keeps it awake. The URL and publishable key are
+# the public ones in js/config.js.
+on:
+  schedule:
+    - cron: '17 6 * * 1,4'   # Mondays and Thursdays, 09:17 in Kenya
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Read the settings table once
+        run: |
+          url=$(sed -n "s/.*supabaseUrl: *'\([^']*\)'.*/\1/p" js/config.js)
+          key=$(sed -n "s/.*supabaseAnonKey: *'\([^']*\)'.*/\1/p" js/config.js)
+          curl -fsS -o /dev/null -w "Supabase answered: HTTP %{http_code}\n" \
+            -H "apikey: $key" "$url/rest/v1/settings?select=key&limit=1"

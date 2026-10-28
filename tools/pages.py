@@ -74,7 +74,6 @@ def page(file, title, desc, body, form=False):
 <main id="main">
 {body.strip()}
 </main>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.117.3"></script>
 <script src="js/config.js"></script>
 <script src="js/data.js"></script>
 <script src="js/md.js"></script>
